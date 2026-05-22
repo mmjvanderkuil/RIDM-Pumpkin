@@ -134,6 +134,14 @@ impl Brancher for DynamicBrancher {
                 self.branchers[brancher_index].on_appearance_in_conflict_predicate(predicate)
             });
     }
+    
+    fn on_appearance_in_nogood(&mut self, predicate: Predicate) {
+        self.relevant_event_to_index[BrancherEvent::AppearanceInNogoodPredicate]
+            .iter()
+            .for_each(|&brancher_index| {
+                self.branchers[brancher_index].on_appearance_in_conflict_predicate(predicate)
+            });
+    }
 
     fn on_solution(&mut self, solution: SolutionReference) {
         self.brancher_index = 0;

@@ -118,6 +118,7 @@ pub trait Brancher {
     /// This can be used by [`Brancher::subscribe_to_events`] to determine upon which
     /// events which [`VariableSelector`] should be called.
     fn subscribe_to_events(&self) -> Vec<BrancherEvent>;
+    fn on_appearance_in_nogood(&mut self, predicate: Predicate);
 }
 
 /// The events which can occur for a [`Brancher`]. Used for returning which events are relevant in
@@ -139,4 +140,6 @@ pub enum BrancherEvent {
     Restart,
     /// Event which is called with the new state after a backtrack has occurred
     Synchronise,
+    /// Event when a variable appears in a premise of a new nogood
+    AppearanceInNogoodPredicate,
 }

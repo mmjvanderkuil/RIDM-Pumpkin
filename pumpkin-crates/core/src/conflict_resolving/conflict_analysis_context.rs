@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use crate::Random;
 use crate::basic_types::StoredConflictInfo;
 use crate::branching::Brancher;
+use crate::branching::branchers::autonomous_search::AutonomousSearch;
 #[cfg(doc)]
 use crate::branching::branchers::autonomous_search::AutonomousSearch;
 #[cfg(doc)]
@@ -202,6 +203,14 @@ impl ConflictAnalysisContext<'_> {
     /// This is used by [`Brancher`]s such as [`AutonomousSearch`] to guide the search.
     pub fn predicate_appeared_in_conflict(&mut self, predicate: Predicate) {
         self.brancher.on_appearance_in_conflict_predicate(predicate);
+    }
+
+    /// Informs the used [`Brancher`] that the `variable` of the provided `predicate` appeared in
+    /// a nogood.
+    ///
+    /// This is used by [`Brancher`]s such as [`AutonomousSearch`] to guide the search.
+    pub fn predicate_appeared_in_nogood(&mut self, predicate: Predicate) {
+        self.brancher.on_appearance_in_nogood(predicate);
     }
 }
 
