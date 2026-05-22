@@ -38,7 +38,7 @@ const DEFAULT_INCREMENT: f64 = 1.0;
 impl<BackupBrancher> CustomSearch<BackupBrancher> {
     /// Creates a new instance of `CustomSearch`.
     pub fn new(backup_brancher: BackupBrancher) -> Self {
-        println!("Here\n");
+        eprintln!("Here");
         CustomSearch {
             // Initialize fields here.
             backup_brancher,
@@ -49,10 +49,10 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
 
 impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
     fn next_decision(&mut self, context: &mut SelectionContext) -> Option<Predicate> {
-        println!("Current variable bounds:");
+        eprintln!("Current variable bounds:");
 
         for variable in context.get_domains() {
-            println!(
+            eprintln!(
                 "var {:?}: [{}, {}]",
                 variable,
                 context.lower_bound(variable),
@@ -60,8 +60,7 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
             );
         }
         
-        None
-        // self.backup_brancher.next_decision(context)
+        self.backup_brancher.next_decision(context)
     }
 
     fn log_statistics(&self, _statistic_logger: StatisticLogger) {
