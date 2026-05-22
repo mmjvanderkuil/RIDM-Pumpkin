@@ -8,6 +8,7 @@ use crate::branching::BrancherEvent;
 use crate::branching::SelectionContext;
 use crate::branching::value_selection::InDomainMin;
 use crate::branching::variable_selection::InputOrder;
+use crate::conflict_resolving::LearnedNogood;
 use crate::containers::KeyValueHeap;
 use crate::containers::StorageKey;
 use crate::create_statistics_struct;
@@ -38,7 +39,6 @@ const DEFAULT_INCREMENT: f64 = 1.0;
 impl<BackupBrancher> CustomSearch<BackupBrancher> {
     /// Creates a new instance of `CustomSearch`.
     pub fn new(backup_brancher: BackupBrancher) -> Self {
-        eprintln!("Here");
         CustomSearch {
             // Initialize fields here.
             backup_brancher,
@@ -109,8 +109,27 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
     }
 
     fn subscribe_to_events(&self) -> Vec<BrancherEvent> {
-        // Subscribe to relevant events.
-        vec![]
+        [
+            BrancherEvent::Solution,
+            BrancherEvent::Conflict,
+            BrancherEvent::Backtrack,
+            BrancherEvent::Synchronise,
+            BrancherEvent::AppearanceInConflictPredicate,
+            BrancherEvent::LearnedNogood
+        ]
+        .into_iter()
+        .chain(self.backup_brancher.subscribe_to_events())
+        .collect()
+    }
+
+    fn on_learned_nogood(
+        &mut self,
+        learned_nogood: &LearnedNogood,
+    ) {
+        eprintln!("Learned nogood with {} predicates:", learned_nogood.predicates.len());
+        for (i, predicate) in learned_nogood.predicates.iter().enumerate() {
+            eprintln!("  [{}] {:?}", i, predicate);
+        }
     }
 }
 
