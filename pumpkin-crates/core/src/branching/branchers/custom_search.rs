@@ -173,6 +173,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                 self.heap_ne.increment(dv_id, self.increment);
             },
             PredicateType::UpperBound => {
+                // todo() also bump the counter for each value in the domain less than v
                 let activity = self.heap_lt.get_value(dv_id);
                 if activity + self.increment > self.max_threshold {
                     self.divide_heaps();
@@ -180,6 +181,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                 self.heap_lt.increment(dv_id, self.increment);
             },
             PredicateType::LowerBound => {
+                // todo() also bump the counter for each value in the domain greater than v
                 let activity = self.heap_gt.get_value(dv_id);
                 if activity + self.increment > self.max_threshold {
                     self.divide_heaps();
@@ -244,14 +246,13 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                         },
                         1 => {
                             // Greater than constraint
-                            // Less than constraint
-                            let predicate = domain_id.atomic_less_than(value);
+                            let predicate = domain_id.atomic_greater_than(value);
                             if context.is_predicate_assigned(predicate) {
                                 self.statistics.num_assigned_predicates_encountered += 1;
-                                self.heap_lt.pop_max();
+                                self.heap_gt.pop_max();
 
-                                self.heap_lt.delete_key(dv_id);
-                                self.dormant_predicates.insert((domain_id, PredicateType::UpperBound), value);
+                                self.heap_gt.delete_key(dv_id);
+                                self.dormant_predicates.insert((domain_id, PredicateType::LowerBound), value);
                             } else {
                                 return Some(predicate);
                             }
@@ -260,13 +261,13 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                         2 => {
                             // Equals constraint
                             // Less than constraint
-                            let predicate = domain_id.atomic_less_than(value);
+                            let predicate = domain_id.atomic_equal(value);
                             if context.is_predicate_assigned(predicate) {
                                 self.statistics.num_assigned_predicates_encountered += 1;
-                                self.heap_lt.pop_max();
+                                self.heap_eq.pop_max();
 
-                                self.heap_lt.delete_key(dv_id);
-                                self.dormant_predicates.insert((domain_id, PredicateType::UpperBound), value);
+                                self.heap_eq.delete_key(dv_id);
+                                self.dormant_predicates.insert((domain_id, PredicateType::Equal), value);
                             } else {
                                 return Some(predicate);
                             }
@@ -274,13 +275,13 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                         3 => {
                             // Not-equals constraint
                             // Less than constraint
-                            let predicate = domain_id.atomic_less_than(value);
+                            let predicate = domain_id.atomic_not_equal(value);
                             if context.is_predicate_assigned(predicate) {
                                 self.statistics.num_assigned_predicates_encountered += 1;
-                                self.heap_lt.pop_max();
+                                self.heap_ne.pop_max();
 
-                                self.heap_lt.delete_key(dv_id);
-                                self.dormant_predicates.insert((domain_id, PredicateType::UpperBound), value);
+                                self.heap_ne.delete_key(dv_id);
+                                self.dormant_predicates.insert((domain_id, PredicateType::NotEqual), value);
                             } else {
                                 return Some(predicate);
                             }
