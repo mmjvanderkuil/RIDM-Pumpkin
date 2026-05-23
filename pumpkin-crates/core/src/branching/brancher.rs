@@ -14,6 +14,7 @@ use crate::branching::branchers::dynamic_brancher::DynamicBrancher;
 use crate::branching::value_selection::ValueSelector;
 #[cfg(doc)]
 use crate::branching::variable_selection::VariableSelector;
+use crate::conflict_resolving::LearnedNogood;
 #[cfg(doc)]
 use crate::create_statistics_struct;
 use crate::engine::predicates::predicate::Predicate;
@@ -118,7 +119,11 @@ pub trait Brancher {
     /// This can be used by [`Brancher::subscribe_to_events`] to determine upon which
     /// events which [`VariableSelector`] should be called.
     fn subscribe_to_events(&self) -> Vec<BrancherEvent>;
-    fn on_appearance_in_nogood(&mut self, predicate: Predicate);
+
+    fn on_learned_nogood(
+        &mut self,
+        _learned_nogood: &LearnedNogood,
+    ) {}
 }
 
 /// The events which can occur for a [`Brancher`]. Used for returning which events are relevant in
@@ -140,6 +145,6 @@ pub enum BrancherEvent {
     Restart,
     /// Event which is called with the new state after a backtrack has occurred
     Synchronise,
-    /// Event when a variable appears in a premise of a new nogood
-    AppearanceInNogoodPredicate,
+    // Event for when a learned nogood is added to the database
+    LearnedNogood
 }

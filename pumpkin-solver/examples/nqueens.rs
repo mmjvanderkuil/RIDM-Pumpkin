@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use pumpkin_conflict_resolvers::resolvers::ResolutionResolver;
+use pumpkin_core::branching::branchers::custom_search::CustomSearch;
 use pumpkin_solver::Solver;
 use pumpkin_solver::core::options::SolverOptions;
 use pumpkin_solver::core::proof::ProofLog;
@@ -87,7 +88,7 @@ fn main() {
         .add_constraint(pumpkin_constraints::all_different(diag2, c3_tag))
         .post();
 
-    let mut brancher = solver.default_brancher();
+    let mut brancher = CustomSearch::new(solver.default_brancher());
     let mut resolver = ResolutionResolver::default();
 
     match solver.satisfy(&mut brancher, &mut Indefinite, &mut resolver) {

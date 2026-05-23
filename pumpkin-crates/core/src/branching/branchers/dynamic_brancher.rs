@@ -12,6 +12,7 @@ use crate::basic_types::SolutionReference;
 use crate::branching::Brancher;
 use crate::branching::SelectionContext;
 use crate::branching::brancher::BrancherEvent;
+use crate::conflict_resolving::LearnedNogood;
 use crate::containers::HashSet;
 use crate::engine::predicates::predicate::Predicate;
 use crate::engine::variables::DomainId;
@@ -173,5 +174,14 @@ impl Brancher for DynamicBrancher {
 
     fn subscribe_to_events(&self) -> Vec<BrancherEvent> {
         self.relevant_events.clone()
+    }
+
+    fn on_learned_nogood(
+        &mut self,
+        learned_nogood: &LearnedNogood,
+    ) {
+        self.branchers.iter_mut().for_each(|brancher| {
+            brancher.on_learned_nogood(learned_nogood);
+        });
     }
 }

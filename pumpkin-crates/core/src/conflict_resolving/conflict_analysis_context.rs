@@ -227,11 +227,15 @@ impl ConflictAnalysisContext<'_> {
         // the trail -> although in the current version this does nothing but notify that a
         // conflict happened
         self.restart_strategy
-            .notify_conflict(lbd, self.state.assignments.get_pruned_value_count());
-
+        .notify_conflict(lbd, self.state.assignments.get_pruned_value_count());
+        
         let learned_nogood =
             LearnedNogood::create_from_vec(learned_nogood_predicates, self, is_extended);
-
+        
+        self.brancher.on_learned_nogood(
+            &learned_nogood,
+        );
+        
         let constraint_tag = self.log_deduction(learned_nogood.predicates.iter().copied());
         let inference_code = InferenceCode::new(constraint_tag, NogoodLabel);
 
