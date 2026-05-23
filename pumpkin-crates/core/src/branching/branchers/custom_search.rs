@@ -1,10 +1,12 @@
+use itertools::Itertools;
 use num::integer::{div_floor, mod_floor};
+use pumpkin_checking::CheckerVariable;
 use crate::basic_types::SolutionReference;
 use crate::branching::Brancher;
 use crate::branching::BrancherEvent;
 use crate::branching::SelectionContext;
 use crate::conflict_resolving::LearnedNogood;
-use crate::containers::KeyValueHeap;
+use crate::containers::{HashMap, KeyValueHeap};
 use crate::containers::StorageKey;
 use crate::create_statistics_struct;
 use crate::engine::predicates::predicate::Predicate;
@@ -67,7 +69,7 @@ pub struct CustomSearch<BackupBrancher> {
     pub max_threshold: f64,
     pub decay_factor: f64,
     pub best_known_solution: Option<Solution>,
-    dormant_predicates: Vec<(DomainId, PredicateType)>
+    dormant_predicates: HashMap<(DomainId, PredicateType), i32>
 }
 
 create_statistics_struct!(CustomSearchStatistics {
@@ -103,7 +105,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
             best_known_solution: None,
             backup_brancher,
             statistics: Default::default(),
-            dormant_predicates: vec![],
+            dormant_predicates: Default::default(),
         }
     }
 
@@ -196,32 +198,102 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
         self.increment *= 1.0 / self.decay_factor;
     }
 
-    // fn next_candidate_predicate(&mut self, context: &mut SelectionContext) -> Option<Predicate> {
-    //     loop {
-    //         // We peek the next variable, since we do not pop since we do not (yet) want to
-    //         // remove the value from the heap.
-    //         if let Some((candidate, _)) = self.heap.peek_max() {
-    //             let predicate = self
-    //                 .predicate_id_info
-    //                 .get_predicate(*candidate)
-    //                 .expect("Expected predicate id to exist");
-    //             if context.is_predicate_assigned(predicate) {
-    //                 self.statistics.num_assigned_predicates_encountered += 1;
-    //                 let _ = self.heap.pop_max();
-    //
-    //                 // We know that this predicate is now dormant
-    //                 let predicate_id = self.predicate_id_info.get_id(predicate);
-    //                 self.heap.delete_key(predicate_id);
-    //                 self.predicate_id_info.delete_id(predicate_id);
-    //                 self.dormant_predicates.push(predicate);
-    //             } else {
-    //                 return Some(predicate);
-    //             }
-    //         } else {
-    //             return None;
-    //         }
-    //     }
-    // }
+    fn next_candidate_predicate(&mut self, context: &mut SelectionContext) -> Option<Predicate> {
+        // Loop until we find an allowed predicate
+        //
+        // The idea is that we store for the domain and predicate, which value it was decided on.
+        // It is undesirable to first branch on [x >= 2] and then on [x >= 1]. todo();
+        loop {
+            // For each heap we check the highest count, and take the max of those maxes
+            // todo(This is currently not done fully correctly, as the real count is eq = _eq + lt + gt);
+            let choices = [
+                self.heap_lt.peek_max().map(|(id, &v)| (id.clone(), v)),
+                self.heap_gt.peek_max().map(|(id, &v)| (id.clone(), v)),
+                self.heap_eq.peek_max().map(|(id, &v)| (id.clone(), v)),
+                self.heap_ne.peek_max().map(|(id, &v)| (id.clone(), v)),
+            ];
+
+            // Necessary as position_max needs f64 to implement Ord, which it doesnt
+            let max_index = choices
+                .iter()
+                .map(|opt| opt.map(|(_, val)| val).unwrap_or(-1.0))
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                .map(|(idx, _)| idx);
+
+            if let Some(idx) = max_index {
+                if let Some(candidate) = choices[idx] {
+                    let (dv_id, _) = candidate;
+                    let domain_id = dv_id.id;
+                    let value = dv_id.value;
+
+                    //
+                    match idx {
+                        0 => {
+                            // Less than constraint
+                            let predicate = domain_id.atomic_less_than(value);
+                            if context.is_predicate_assigned(predicate) {
+                                self.statistics.num_assigned_predicates_encountered += 1;
+                                self.heap_lt.pop_max();
+
+                                self.heap_lt.delete_key(dv_id);
+                                self.dormant_predicates.insert((domain_id, PredicateType::UpperBound), value);
+                            } else {
+                                return Some(predicate);
+                            }
+                        },
+                        1 => {
+                            // Greater than constraint
+                            // Less than constraint
+                            let predicate = domain_id.atomic_less_than(value);
+                            if context.is_predicate_assigned(predicate) {
+                                self.statistics.num_assigned_predicates_encountered += 1;
+                                self.heap_lt.pop_max();
+
+                                self.heap_lt.delete_key(dv_id);
+                                self.dormant_predicates.insert((domain_id, PredicateType::UpperBound), value);
+                            } else {
+                                return Some(predicate);
+                            }
+
+                        },
+                        2 => {
+                            // Equals constraint
+                            // Less than constraint
+                            let predicate = domain_id.atomic_less_than(value);
+                            if context.is_predicate_assigned(predicate) {
+                                self.statistics.num_assigned_predicates_encountered += 1;
+                                self.heap_lt.pop_max();
+
+                                self.heap_lt.delete_key(dv_id);
+                                self.dormant_predicates.insert((domain_id, PredicateType::UpperBound), value);
+                            } else {
+                                return Some(predicate);
+                            }
+                        },
+                        3 => {
+                            // Not-equals constraint
+                            // Less than constraint
+                            let predicate = domain_id.atomic_less_than(value);
+                            if context.is_predicate_assigned(predicate) {
+                                self.statistics.num_assigned_predicates_encountered += 1;
+                                self.heap_lt.pop_max();
+
+                                self.heap_lt.delete_key(dv_id);
+                                self.dormant_predicates.insert((domain_id, PredicateType::UpperBound), value);
+                            } else {
+                                return Some(predicate);
+                            }
+                        }
+                        _ => ()
+                    }
+                } else {
+                    // Encountered no max
+                    return None
+                }
+            }
+        }
+    }
 
     /// Determines whether the provided [`Predicate`] should be returned as is or whether its
     /// negation should be returned. This is determined based on its assignment in the best-known
