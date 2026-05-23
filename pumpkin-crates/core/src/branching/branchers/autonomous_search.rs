@@ -345,16 +345,12 @@ impl<BackupBrancher: Brancher> Brancher for AutonomousSearch<BackupBrancher> {
             BrancherEvent::Backtrack,
             BrancherEvent::Synchronise,
             BrancherEvent::AppearanceInConflictPredicate,
-            BrancherEvent::AppearanceInNogoodPredicate,
         ]
         .into_iter()
         .chain(self.backup_brancher.subscribe_to_events())
         .collect()
     }
 
-    fn on_appearance_in_nogood(&mut self, predicate: Predicate) {
-        self.backup_brancher.on_appearance_in_nogood(predicate);
-    }
 }
 
 #[cfg(test)]
