@@ -16,6 +16,8 @@ pub(crate) struct PropagatorQueue {
     bump_value: KeyedVec<PropagatorId, f32>,
     total_bump: f32,
     present_priorities: BinaryHeap<Reverse<u32>>,
+    pub(crate) num_priority_changes: usize,
+    last_priorities: KeyedVec<PropagatorId, Option<Priority>>,
 }
 
 pub(crate) struct PropagationOutcome {
@@ -40,6 +42,8 @@ impl PropagatorQueue {
             total_bump: 0.0,
             num_enqueued: 0,
             present_priorities: BinaryHeap::new(),
+            num_priority_changes: 0,
+            last_priorities: KeyedVec::default(),
         }
     }
 
@@ -49,6 +53,14 @@ impl PropagatorQueue {
 
     pub(crate) fn enqueue_propagator(&mut self, propagator_id: PropagatorId, priority: Priority) {
         pumpkin_assert_moderate!((priority as usize) < self.queues.len());
+
+        self.last_priorities.accomodate(propagator_id, None);
+        if let Some(last) = self.last_priorities[propagator_id] {
+            if last != priority {
+                self.num_priority_changes += 1;
+            }
+        }
+        self.last_priorities[propagator_id] = Some(priority);
 
         if !self.is_propagator_enqueued(propagator_id) {
             self.is_enqueued.accomodate(propagator_id, false);

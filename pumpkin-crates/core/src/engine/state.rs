@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Instant;
 
 use pumpkin_checking::BoxedChecker;
 use pumpkin_checking::InferenceChecker;
@@ -54,6 +53,8 @@ use crate::variables::DomainId;
 use crate::variables::IntegerVariable;
 use crate::variables::Literal;
 
+use crate::basic_types::time::Instant;
+
 /// The [`State`] is the container of variables and propagators.
 ///
 /// [`State`] implements [`Clone`], and cloning the [`State`] will create a fresh copy of the
@@ -100,6 +101,10 @@ create_statistics_struct!(StateStatistics {
     /// The number of times a backjump (i.e. backtracking more than a single decision level due to
     /// a learned nogood) occurs.
     num_backjumps: u64,
+    total_propagator_time: u64,
+    non_pruning_propagator_time: u64,
+    num_pruning_calls: usize,
+    total_prune_amount: u64,
 });
 
 /// Information concerning the conflict returned by [`State::propagate_to_fixed_point`].
@@ -201,6 +206,33 @@ impl State {
         log_statistic("failures", self.statistics.num_conflicts);
         log_statistic("propagations", self.statistics.num_propagators_called);
         log_statistic("nogoods", self.statistics.num_conflicts);
+
+        // Pruning metrics.
+        let num_calls = self.statistics.num_propagators_called;
+        let num_pruning = self.statistics.num_pruning_calls;
+        log_statistic("numPruningCalls", num_pruning);
+        log_statistic(
+            "percentPropagatorsPruned",
+            if num_calls > 0 {
+                (num_pruning * 100) / num_calls
+            } else {
+                0
+            },
+        );
+        log_statistic("totalPruneAmount", self.statistics.total_prune_amount);
+        log_statistic(
+            "totalPropagatorTimeMicros",
+            self.statistics.total_propagator_time,
+        );
+        log_statistic(
+            "nonPruningPropagatorTimeMicros",
+            self.statistics.non_pruning_propagator_time,
+        );
+        log_statistic(
+            "numPriorityChanges",
+            self.propagator_queue.num_priority_changes,
+        );
+
         if true {
             log_statistic(
                 "numAtomicConstraintsPropagated",
@@ -664,6 +696,16 @@ impl State {
         let propagation_time = propagation_end - propagation_start;
         let total_removed_values =
             self.sum_removed_values_from_trail(num_trail_entries_before, self.assignments.num_trail_entries());
+
+        self.statistics.total_propagator_time += propagation_time.as_micros() as u64;
+
+        let num_trail_entries_after = self.assignments.num_trail_entries();
+        if num_trail_entries_after > num_trail_entries_before {
+            self.statistics.num_pruning_calls += 1;
+            self.statistics.total_prune_amount += total_removed_values as u64;
+        } else {
+            self.statistics.non_pruning_propagator_time += propagation_time.as_micros() as u64;
+        }
 
         #[cfg(feature = "check-propagations")]
         self.check_propagations(num_trail_entries_before);
