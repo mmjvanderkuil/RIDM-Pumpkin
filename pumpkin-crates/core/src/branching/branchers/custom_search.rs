@@ -148,9 +148,44 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
         self.increment /= self.max_threshold;
     }
 
+    fn domain_values_to_increment(&mut self, id: DomainId, predicate: PredicateType, value:i32, context: &mut SelectionContext) -> Vec<DomainValueId> {
+        let mut dv_idx: Vec<DomainValueId> = vec![];
+        match predicate {
+            PredicateType::UpperBound => {
+                // Less than == upper bound
+                // if [x <= v] => also increase [x <= v+i] for i = -1, -2, ...
+                // As those also validate this predicate
+                let lb = context.lower_bound(id);
+                for val in lb..=value {
+                    dv_idx.push(DomainValueId { id, value: val });
+                }
+            },
+            PredicateType::LowerBound => {
+                // Greater than == lower bound
+                // if [x >= v] => also increase [x >= v+i] for i = 1,2,...
+                // As those also validate this predicate
+                let ub = context.upper_bound(id);
+                for val in value..=ub {
+                    dv_idx.push(DomainValueId { id, value: val });
+                }
+            },
+            PredicateType::NotEqual => {
+                let lb = context.lower_bound(id);
+                let ub = context.upper_bound(id);
+                for val in lb..=ub {
+                    if val != value {
+                        dv_idx.push(DomainValueId { id, value: val });
+                    }
+                }
+            }
+            _ => ()
+        };
+        dv_idx
+    }
+
     /// Bumps the activity of a predicate by [`Vsids::increment`].
     /// Used when a predicate is encountered during a conflict.
-    fn bump_activity(&mut self, predicate: Predicate) {
+    fn bump_activity(&mut self, predicate: Predicate, context: &mut SelectionContext) {
         let id = predicate.get_domain();
         let value = predicate.get_right_hand_side();
         let dv_id = DomainValueId{id, value };
@@ -171,22 +206,56 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                     self.divide_heaps();
                 }
                 self.heap_ne.increment(dv_id, self.increment);
+                let dv_idx = self.domain_values_to_increment(id,pred_type, value, context);
+
+                for other_dv_id in dv_idx {
+                    let activity = self.heap_eq.get_value(other_dv_id);
+                    if activity + self.increment > self.max_threshold {
+                        self.divide_heaps();
+                    }
+                    self.heap_eq.increment(dv_id, self.increment);
+                }
+
+
             },
             PredicateType::UpperBound => {
-                // todo() also bump the counter for each value in the domain less than v
-                let activity = self.heap_lt.get_value(dv_id);
-                if activity + self.increment > self.max_threshold {
-                    self.divide_heaps();
+                // Also bumps the counter for each value in the domain less than v
+                let dv_idx = self.domain_values_to_increment(id, pred_type, value, context);
+
+                for (i,other_dv_id) in dv_idx.iter().enumerate() {
+                    if i == 0 {
+                        // As we know that the counters over this domain will be strictly decreasing
+                        // we only have to check if the lowest value counter will be exceeding the
+                        // threshold
+                        let activity = self.heap_lt.get_value(*other_dv_id);
+                        if activity + self.increment > self.max_threshold {
+                            self.divide_heaps();
+                        }
+                    }
+                    self.heap_lt.increment(*other_dv_id, self.increment);
                 }
-                self.heap_lt.increment(dv_id, self.increment);
+
             },
             PredicateType::LowerBound => {
-                // todo() also bump the counter for each value in the domain greater than v
-                let activity = self.heap_gt.get_value(dv_id);
-                if activity + self.increment > self.max_threshold {
-                    self.divide_heaps();
+                // Also bumps the counter for each value in the domain greater than v
+                let dv_idx = self.domain_values_to_increment(id, pred_type, value, context);
+
+                for (i,other_dv_id) in dv_idx.iter().rev().enumerate() {
+                    if i == 0 {
+                        // As we know that the counters over this domain will be strictly increasing
+                        // we only have to check if the highest value counter will be exceeding the
+                        // threshold
+                        let activity = self.heap_gt.get_value(*other_dv_id).max(*self.heap_eq.get_value(*other_dv_id));
+                        if activity + self.increment > self.max_threshold {
+                            self.divide_heaps();
+                        }
+                    }
+                    self.heap_gt.increment(*other_dv_id, self.increment);
+                    // Also increment the equality, as those also set the predicate to true
+                    self.heap_eq.increment(*other_dv_id, self.increment);
                 }
-                self.heap_gt.increment(dv_id, self.increment);
+
+                // todo: should also increase the ne counters for each i where i < v with [x >= v]
             }
         }
     }
@@ -203,11 +272,10 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
     fn next_candidate_predicate(&mut self, context: &mut SelectionContext) -> Option<Predicate> {
         // Loop until we find an allowed predicate
         //
-        // The idea is that we store for the domain and predicate, which value it was decided on.
-        // It is undesirable to first branch on [x >= 2] and then on [x >= 1]. todo();
+        // todo(The idea is that we store for the domain and predicate, which value it was decided on.)
+        // todo(It is undesirable to first branch on [x >= 2] and then on [x >= 1].);
         loop {
             // For each heap we check the highest count, and take the max of those maxes
-            // todo(This is currently not done fully correctly, as the real count is eq = _eq + lt + gt);
             let choices = [
                 self.heap_lt.peek_max().map(|(id, &v)| (id.clone(), v)),
                 self.heap_gt.peek_max().map(|(id, &v)| (id.clone(), v)),
