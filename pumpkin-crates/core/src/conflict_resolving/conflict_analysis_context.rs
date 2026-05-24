@@ -226,6 +226,7 @@ impl ConflictAnalysisContext<'_> {
         
         self.brancher.on_learned_nogood(
             &learned_nogood,
+            self.state
         );
         
         let constraint_tag = self.log_deduction(learned_nogood.predicates.iter().copied());

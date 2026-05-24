@@ -13,6 +13,7 @@ use crate::engine::predicates::predicate::Predicate;
 use crate::predicates::PredicateType;
 use crate::propagation::ReadDomains;
 use crate::results::Solution;
+use crate::state::State;
 use crate::statistics::Statistic;
 use crate::statistics::StatisticLogger;
 use crate::statistics::moving_averages::CumulativeMovingAverage;
@@ -148,14 +149,14 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
         self.increment /= self.max_threshold;
     }
 
-    fn domain_values_to_increment(&mut self, id: DomainId, predicate: PredicateType, value:i32, context: &mut SelectionContext) -> Vec<DomainValueId> {
+    fn domain_values_to_increment(&mut self, id: DomainId, predicate: PredicateType, value:i32, state: &mut State) -> Vec<DomainValueId> {
         let mut dv_idx: Vec<DomainValueId> = vec![];
         match predicate {
             PredicateType::UpperBound => {
                 // Less than == upper bound
                 // if [x <= v] => also increase [x <= v+i] for i = -1, -2, ...
                 // As those also validate this predicate
-                let lb = context.lower_bound(id);
+                let lb = state.lower_bound(id);
                 for val in lb..=value {
                     dv_idx.push(DomainValueId { id, value: val });
                 }
@@ -164,14 +165,14 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                 // Greater than == lower bound
                 // if [x >= v] => also increase [x >= v+i] for i = 1,2,...
                 // As those also validate this predicate
-                let ub = context.upper_bound(id);
+                let ub = state.upper_bound(id);
                 for val in value..=ub {
                     dv_idx.push(DomainValueId { id, value: val });
                 }
             },
             PredicateType::NotEqual => {
-                let lb = context.lower_bound(id);
-                let ub = context.upper_bound(id);
+                let lb = state.lower_bound(id);
+                let ub = state.upper_bound(id);
                 for val in lb..=ub {
                     if val != value {
                         dv_idx.push(DomainValueId { id, value: val });
@@ -185,7 +186,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
 
     /// Bumps the activity of a predicate by [`Vsids::increment`].
     /// Used when a predicate is encountered during a conflict.
-    fn bump_activity(&mut self, predicate: Predicate, context: &mut SelectionContext) {
+    fn bump_activity(&mut self, predicate: Predicate, state: &mut State) {
         let id = predicate.get_domain();
         let value = predicate.get_right_hand_side();
         let dv_id = DomainValueId{id, value };
@@ -206,7 +207,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                     self.divide_heaps();
                 }
                 self.heap_ne.increment(dv_id, self.increment);
-                let dv_idx = self.domain_values_to_increment(id,pred_type, value, context);
+                let dv_idx = self.domain_values_to_increment(id,pred_type, value, state);
 
                 for other_dv_id in dv_idx {
                     let activity = self.heap_eq.get_value(other_dv_id);
@@ -220,7 +221,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
             },
             PredicateType::UpperBound => {
                 // Also bumps the counter for each value in the domain less than v
-                let dv_idx = self.domain_values_to_increment(id, pred_type, value, context);
+                let dv_idx = self.domain_values_to_increment(id, pred_type, value, state);
 
                 for (i,other_dv_id) in dv_idx.iter().enumerate() {
                     if i == 0 {
@@ -238,7 +239,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
             },
             PredicateType::LowerBound => {
                 // Also bumps the counter for each value in the domain greater than v
-                let dv_idx = self.domain_values_to_increment(id, pred_type, value, context);
+                let dv_idx = self.domain_values_to_increment(id, pred_type, value, state);
 
                 for (i,other_dv_id) in dv_idx.iter().rev().enumerate() {
                     if i == 0 {
@@ -488,10 +489,13 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
     fn on_learned_nogood(
         &mut self,
         learned_nogood: &LearnedNogood,
+        state: &mut State,
     ) {
         eprintln!("Learned nogood with {} predicates:", learned_nogood.predicates.len());
         for (i, predicate) in learned_nogood.predicates.iter().enumerate() {
             eprintln!("  [{}] {:?}", i, predicate);
+            self.bump_activity(*predicate, state);
+
         }
     }
 }
