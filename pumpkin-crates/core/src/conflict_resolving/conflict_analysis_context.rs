@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use crate::Random;
 use crate::basic_types::StoredConflictInfo;
 use crate::branching::Brancher;
+use crate::branching::SelectionContext;
 #[cfg(doc)]
 use crate::branching::branchers::autonomous_search::AutonomousSearch;
 #[cfg(doc)]
@@ -223,8 +224,14 @@ impl ConflictAnalysisContext<'_> {
         let learned_nogood =
             LearnedNogood::create_from_vec(learned_nogood_predicates, self, is_extended);
         
+
+        let context = &mut SelectionContext::new(
+            &self.state.assignments,
+            self.rng
+        );
         self.brancher.on_learned_nogood(
             &learned_nogood,
+            &context,
         );
         
         let constraint_tag = self.log_deduction(learned_nogood.predicates.iter().copied());

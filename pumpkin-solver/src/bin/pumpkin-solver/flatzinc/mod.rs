@@ -168,7 +168,7 @@ pub(crate) fn solve<R: ConflictResolver>(
     // };
 
     let mut brancher = DynamicBrancher::new(vec![Box::new(
-        CustomSearch::new(solver.default_brancher())
+        CustomSearch::new(solver.default_brancher()),
     )]);
 
     let (direction, objective): (OptimisationDirection, DomainId) =

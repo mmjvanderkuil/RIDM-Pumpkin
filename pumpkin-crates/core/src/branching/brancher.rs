@@ -123,6 +123,7 @@ pub trait Brancher {
     fn on_learned_nogood(
         &mut self,
         _learned_nogood: &LearnedNogood,
+        _context: &SelectionContext,
     ) {}
 }
 

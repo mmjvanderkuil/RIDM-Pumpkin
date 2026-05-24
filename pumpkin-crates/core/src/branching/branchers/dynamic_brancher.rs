@@ -171,9 +171,10 @@ impl Brancher for DynamicBrancher {
     fn on_learned_nogood(
         &mut self,
         learned_nogood: &LearnedNogood,
+        context: &SelectionContext
     ) {
         self.branchers.iter_mut().for_each(|brancher| {
-            brancher.on_learned_nogood(learned_nogood);
+            brancher.on_learned_nogood(learned_nogood, context);
         });
     }
 }
