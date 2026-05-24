@@ -303,7 +303,7 @@ mod tests {
     use pumpkin_core::predicate;
     use pumpkin_core::predicates::Predicate;
     use pumpkin_core::predicates::PropositionalConjunction;
-
+    use pumpkin_core::state::State;
     use crate::minimisers::NogoodMinimiser;
     use crate::minimisers::semantic_minimiser::SemanticMinimisationMode;
     use crate::minimisers::semantic_minimiser::SemanticMinimiser;

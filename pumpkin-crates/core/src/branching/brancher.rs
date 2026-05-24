@@ -125,7 +125,7 @@ pub trait Brancher {
         &mut self,
         _learned_nogood: &LearnedNogood,
         state: &mut State
-    );
+    ) {}
 }
 
 /// The events which can occur for a [`Brancher`]. Used for returning which events are relevant in
