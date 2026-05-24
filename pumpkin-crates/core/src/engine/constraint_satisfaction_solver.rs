@@ -187,6 +187,8 @@ pub struct SatisfactionSolverOptions {
     /// The number of MBs which are preallocated by the nogood propagator.
     pub memory_preallocated: usize,
     pub analysis_mode: AnalysisMode,
+    /// Whether to dynamically adapt propagator priorities during propagation.
+    pub dynamic_priority_adaptation: bool,
 }
 
 impl Default for SatisfactionSolverOptions {
@@ -199,6 +201,7 @@ impl Default for SatisfactionSolverOptions {
             learning_options: LearningOptions::default(),
             memory_preallocated: 50,
             analysis_mode: AnalysisMode::default(),
+            dynamic_priority_adaptation: false,
         }
     }
 }
@@ -276,6 +279,7 @@ impl ConstraintSatisfactionSolver {
 impl ConstraintSatisfactionSolver {
     pub fn new(solver_options: SatisfactionSolverOptions) -> Self {
         let mut state = State::default();
+        state.propagator_queue.dynamic_priority_adaptation = solver_options.dynamic_priority_adaptation;
         let handle = state.add_propagator(NogoodPropagatorConstructor::new(
             (solver_options.memory_preallocated * 1_000_000) / size_of::<PredicateId>(),
             solver_options.learning_options,

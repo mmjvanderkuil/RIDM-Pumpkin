@@ -710,14 +710,16 @@ impl State {
         #[cfg(feature = "check-propagations")]
         self.check_propagations(num_trail_entries_before);
 
-        self.propagator_queue.record_propagation_outcome(
-            propagator_id,
-            PropagationOutcome {
-                time: propagation_time,
-                found_conflict: propagation_status.is_err(),
-                total_removed_values,
-            },
-        );
+        if self.propagator_queue.dynamic_priority_adaptation {
+            self.propagator_queue.record_propagation_outcome(
+                propagator_id,
+                PropagationOutcome {
+                    time: propagation_time,
+                    found_conflict: propagation_status.is_err(),
+                    total_removed_values,
+                },
+            );
+        }
 
         match propagation_status {
             Ok(_) => {

@@ -403,8 +403,11 @@ impl NotificationEngine {
 
                     if enqueue_decision == EnqueueDecision::Enqueue {
                         let base_priority = propagator.priority();
-                        let dynamic_priority = propagator_queue
-                            .calculate_dynamic_priority(propagator_id, base_priority);
+                        let dynamic_priority = if propagator_queue.dynamic_priority_adaptation {
+                            propagator_queue.calculate_dynamic_priority(propagator_id, base_priority)
+                        } else {
+                            base_priority
+                        };
                         propagator_queue.enqueue_propagator(propagator_id, dynamic_priority);
                     }
                 }
@@ -428,8 +431,11 @@ impl NotificationEngine {
 
         if enqueue_decision == EnqueueDecision::Enqueue {
             let base_priority = propagators[propagator_id].priority();
-            let dynamic_priority =
-                propagator_queue.calculate_dynamic_priority(propagator_id, base_priority);
+            let dynamic_priority = if propagator_queue.dynamic_priority_adaptation {
+                propagator_queue.calculate_dynamic_priority(propagator_id, base_priority)
+            } else {
+                base_priority
+            };
             propagator_queue.enqueue_propagator(propagator_id, dynamic_priority);
         }
     }
