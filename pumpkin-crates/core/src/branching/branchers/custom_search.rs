@@ -210,6 +210,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                 let dv_idx = self.domain_values_to_increment(id,pred_type, value, state);
 
                 for other_dv_id in dv_idx {
+                    self.resize_heap(other_dv_id, PredicateType::Equal);
                     let activity = self.heap_eq.get_value(other_dv_id);
                     if activity + self.increment > self.max_threshold {
                         self.divide_heaps();
@@ -224,6 +225,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                 let dv_idx = self.domain_values_to_increment(id, pred_type, value, state);
 
                 for (i,other_dv_id) in dv_idx.iter().enumerate() {
+                    self.resize_heap(*other_dv_id, PredicateType::Equal);
                     if i == 0 {
                         // As we know that the counters over this domain will be strictly decreasing
                         // we only have to check if the lowest value counter will be exceeding the
@@ -242,6 +244,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                 let dv_idx = self.domain_values_to_increment(id, pred_type, value, state);
 
                 for (i,other_dv_id) in dv_idx.iter().rev().enumerate() {
+                    self.resize_heap(*other_dv_id, PredicateType::Equal);
                     if i == 0 {
                         // As we know that the counters over this domain will be strictly increasing
                         // we only have to check if the highest value counter will be exceeding the
@@ -256,7 +259,6 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                     self.heap_eq.increment(*other_dv_id, self.increment);
                 }
 
-                // todo: should also increase the ne counters for each i where i < v with [x >= v]
             }
         }
     }
