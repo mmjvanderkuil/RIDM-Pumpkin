@@ -157,6 +157,12 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
                 PredicateType::UpperBound
             };
             let predicate = Predicate::new(variable, predicate_type, value);
+
+            if context.is_predicate_assigned(predicate) {
+                let _ = self.heap.pop_max();
+                continue;
+            }
+
             // eprintln!("CustomSearch chose predicate: {predicate}");
             return Some(predicate);
         }
