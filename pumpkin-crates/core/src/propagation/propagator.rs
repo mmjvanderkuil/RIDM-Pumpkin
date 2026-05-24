@@ -243,3 +243,14 @@ impl PartialOrd for Priority {
         ((*self) as u8).partial_cmp(&((*other) as u8))
     }
 }
+
+impl From<f32> for Priority {
+    fn from(value: f32) -> Self {
+        match value {
+            val if val < 0.0 => Priority::High,
+            val if val < 1.0 => Priority::Medium,
+            val if val < 2.0 => Priority::Low,
+            _ => Priority::VeryLow,
+        }
+    }
+}

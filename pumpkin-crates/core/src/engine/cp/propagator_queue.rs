@@ -1,6 +1,7 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::collections::VecDeque;
+use std::time::Duration;
 
 use crate::containers::KeyedVec;
 use crate::propagation::Priority;
@@ -12,7 +13,16 @@ pub(crate) struct PropagatorQueue {
     queues: Vec<VecDeque<PropagatorId>>,
     is_enqueued: KeyedVec<PropagatorId, bool>,
     num_enqueued: usize,
+    bump_value: KeyedVec<PropagatorId, f32>,
+    total_bump: f32,
     present_priorities: BinaryHeap<Reverse<u32>>,
+}
+
+struct PropagationOutcome {
+    // Time spent in the propagator
+    time: Duration,
+    found_conflict: bool,
+    total_removed_values: u32
 }
 
 impl Default for PropagatorQueue {
@@ -26,6 +36,8 @@ impl PropagatorQueue {
         PropagatorQueue {
             queues: vec![VecDeque::new(); num_priority_levels as usize],
             is_enqueued: KeyedVec::default(),
+            bump_value: KeyedVec::default(),
+            total_bump: 0.0,
             num_enqueued: 0,
             present_priorities: BinaryHeap::new(),
         }
@@ -48,6 +60,32 @@ impl PropagatorQueue {
             }
             self.queues[priority as usize].push_back(propagator_id);
         }
+    }
+
+    /// Alters the parameters used for calculating the dynamic priority of the propagator
+    pub(crate) fn record_propagation_outcome(&mut self, propagator_id: PropagatorId, outcome: PropagationOutcome) {
+        self.bump_value.accomodate(propagator_id, 0.0);
+        // Did the propagator prune any domains?
+        if outcome.total_removed_values == 0 {
+            self.bump_value[propagator_id] -= 1.0;
+        } 
+        // Did the propagator find a conflict?
+        else if outcome.found_conflict {
+            self.bump_value[propagator_id] += 1.0;
+        } 
+        // The propagator must have pruned but did not find a conflict
+        else {
+            self.bump_value[propagator_id] = 0.0;
+        }
+    }
+
+    pub(crate) fn calculate_dynamic_priority(&mut self, propagator_id: PropagatorId, priority: Priority) -> Priority {
+        self.bump_value.accomodate(propagator_id, 0.0);
+        let bump_value = self.bump_value[propagator_id];
+        // TODO: What is a good way to calculate a new dynamic priority
+        let new_priority = (priority as usize as f32) - bump_value;
+
+        return Priority::from(new_priority)
     }
 
     pub(crate) fn pop(&mut self) -> Option<PropagatorId> {
@@ -98,8 +136,11 @@ impl PropagatorQueue {
 
 #[cfg(test)]
 mod tests {
-    use crate::engine::PropagatorQueue;
-    use crate::propagation::Priority;
+    use std::time::Duration;
+
+use crate::engine::PropagatorQueue;
+    use crate::engine::cp::propagator_queue::PropagationOutcome;
+use crate::propagation::Priority;
     use crate::state::PropagatorId;
 
     #[test]
@@ -115,6 +156,39 @@ mod tests {
         assert_eq!(PropagatorId(0), queue.pop().unwrap());
         assert_eq!(PropagatorId(4), queue.pop().unwrap());
         assert_eq!(PropagatorId(3), queue.pop().unwrap());
+        assert_eq!(None, queue.pop());
+    }
+
+    #[test]
+    fn test_dynamic_priority() {
+        let mut queue = PropagatorQueue::default();
+
+        queue.enqueue_propagator(PropagatorId(1), Priority::Medium);
+        queue.enqueue_propagator(PropagatorId(0), Priority::High);
+
+        assert_eq!(PropagatorId(0), queue.pop().unwrap());
+        assert_eq!(PropagatorId(1), queue.pop().unwrap());
+        assert_eq!(None, queue.pop());
+
+        // Propagator `0` is really bad and `1` is really good
+        queue.record_propagation_outcome(PropagatorId(0), PropagationOutcome {
+            time: Duration::from_secs(1),
+            found_conflict: false,
+            total_removed_values: 0
+        });
+        queue.record_propagation_outcome(PropagatorId(1), PropagationOutcome {
+            time: Duration::from_secs(2),
+            found_conflict: true,
+            total_removed_values: 5
+        });
+
+        let priority = queue.calculate_dynamic_priority(PropagatorId(1), Priority::Medium);
+        queue.enqueue_propagator(PropagatorId(1), priority);
+        let priority = queue.calculate_dynamic_priority(PropagatorId(0), Priority::High);
+        queue.enqueue_propagator(PropagatorId(0), priority);
+        assert_eq!(PropagatorId(1), queue.pop().unwrap());
+        assert_eq!(PropagatorId(0), queue.pop().unwrap());
+
         assert_eq!(None, queue.pop());
     }
 }
