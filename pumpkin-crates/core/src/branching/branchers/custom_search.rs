@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::independent_variable_value_brancher::IndependentVariableValueBrancher;
 use crate::DefaultBrancher;
 use crate::basic_types::DeletablePredicateIdGenerator;
@@ -22,6 +24,13 @@ use crate::statistics::moving_averages::CumulativeMovingAverage;
 use crate::statistics::moving_averages::MovingAverage;
 use crate::variables::DomainId;
 
+#[derive(Debug, Default, Clone)]
+struct ValueActivity {
+    ge: f64,
+    le: f64,
+    total: f64,
+}
+
 /// A custom [`Brancher`] implementation.
 ///
 /// This is a placeholder for a user-defined branching strategy.
@@ -31,10 +40,13 @@ pub struct CustomSearch<BackupBrancher> {
     backup_brancher: BackupBrancher,
     // How much the activity of a value is increased
     increment: f64,
+    // variable -> value -> activity
+    var_val_activity: HashMap<DomainId, HashMap<i32, ValueActivity>>,
 }
 
 
 const DEFAULT_INCREMENT: f64 = 1.0;
+const DECAY_FACTOR: f64 = 0.95;
 
 impl<BackupBrancher> CustomSearch<BackupBrancher> {
     /// Creates a new instance of `CustomSearch`.
@@ -42,7 +54,8 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
         CustomSearch {
             // Initialize fields here.
             backup_brancher,
-            increment: DEFAULT_INCREMENT
+            increment: DEFAULT_INCREMENT,
+            var_val_activity: HashMap::new()
         }
     }
 }
