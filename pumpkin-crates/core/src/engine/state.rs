@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use pumpkin_checking::BoxedChecker;
 use pumpkin_checking::InferenceChecker;
@@ -14,6 +15,7 @@ use crate::engine::ConstraintProgrammingTrailEntry;
 use crate::engine::DebugHelper;
 use crate::engine::EmptyDomain;
 use crate::engine::PropagatorQueue;
+use crate::engine::PropagationOutcome;
 #[cfg(test)]
 use crate::engine::Reason;
 use crate::engine::TrailedValues;
@@ -645,6 +647,7 @@ impl State {
         self.statistics.num_propagators_called += 1;
 
         let num_trail_entries_before = self.assignments.num_trail_entries();
+        let propagation_start = Instant::now();
 
         let propagation_status = {
             let propagator = &mut self.propagators[propagator_id];
@@ -657,9 +660,22 @@ impl State {
             );
             propagator.propagate(context)
         };
+        let propagation_end = Instant::now();
+        let propagation_time = propagation_end - propagation_start;
+        let total_removed_values =
+            self.sum_removed_values_from_trail(num_trail_entries_before, self.assignments.num_trail_entries());
 
         #[cfg(feature = "check-propagations")]
         self.check_propagations(num_trail_entries_before);
+
+        self.propagator_queue.record_propagation_outcome(
+            propagator_id,
+            PropagationOutcome {
+                time: propagation_time,
+                found_conflict: propagation_status.is_err(),
+                total_removed_values,
+            },
+        );
 
         match propagation_status {
             Ok(_) => {
@@ -704,6 +720,40 @@ impl State {
             }
         }
         Ok(())
+    }
+
+    fn sum_removed_values_from_trail(&self, start_index: usize, end_index: usize) -> u32 {
+        let mut total_removed_values = 0u32;
+
+        for trail_index in start_index..end_index {
+            let entry = self.assignments.get_trail_entry(trail_index);
+            let domain_id = entry.predicate.get_domain();
+            let new_lower_bound =
+                self.assignments
+                    .get_lower_bound_at_trail_position(domain_id, trail_index);
+            let new_upper_bound =
+                self.assignments
+                    .get_upper_bound_at_trail_position(domain_id, trail_index);
+
+            if new_lower_bound > entry.old_lower_bound {
+                total_removed_values = total_removed_values
+                    .saturating_add((new_lower_bound - entry.old_lower_bound) as u32);
+            }
+
+            if entry.old_upper_bound > new_upper_bound {
+                total_removed_values = total_removed_values
+                    .saturating_add((entry.old_upper_bound - new_upper_bound) as u32);
+            }
+
+            if entry.predicate.is_not_equal_predicate() {
+                let removed_value = entry.predicate.get_right_hand_side();
+                if removed_value > entry.old_lower_bound && removed_value < entry.old_upper_bound {
+                    total_removed_values = total_removed_values.saturating_add(1);
+                }
+            }
+        }
+
+        total_removed_values
     }
 
     /// Check the inference that triggered the given conflict.
@@ -1234,5 +1284,35 @@ mod tests {
             state.get_propagation_reason(predicate!(x >= 5), &mut buffer, CurrentNogood::empty());
 
         assert_eq!(buffer, vec![predicate!(y >= 5)])
+    }
+
+    #[test]
+    fn sum_removed_values_counts_holes() {
+        let mut state = State::default();
+        let x = state.new_interval_variable(1, 5, None);
+
+        let start_index = state.trail_len();
+        let _ = state.post(predicate!(x != 3)).expect("valid hole removal");
+        let end_index = state.trail_len();
+
+        let removed = state.sum_removed_values_from_trail(start_index, end_index);
+        assert_eq!(removed, 1);
+    }
+
+    #[test]
+    fn sum_removed_values_does_not_double_count_bounds_from_holes() {
+        let mut state = State::default();
+        let x = state.new_interval_variable(1, 5, None);
+
+        let start_index = state.trail_len();
+        let _ = state.post(predicate!(x >= 3)).expect("valid boundary removal");
+        let _ = state.post(predicate!(x != 2)).expect("valid boundary removal");
+        let _ = state.post(predicate!(x != 5)).expect("valid boundary removal");
+        let _ = state.post(predicate!(x <= 4)).expect("valid boundary removal");
+        let _ = state.post(predicate!(x != 6)).expect("valid boundary removal");
+        let end_index = state.trail_len();
+
+        let removed = state.sum_removed_values_from_trail(start_index, end_index);
+        assert_eq!(removed, 3);
     }
 }

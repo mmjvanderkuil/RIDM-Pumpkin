@@ -18,11 +18,11 @@ pub(crate) struct PropagatorQueue {
     present_priorities: BinaryHeap<Reverse<u32>>,
 }
 
-struct PropagationOutcome {
+pub(crate) struct PropagationOutcome {
     // Time spent in the propagator
-    time: Duration,
-    found_conflict: bool,
-    total_removed_values: u32
+    pub(crate) time: Duration,
+    pub(crate) found_conflict: bool,
+    pub(crate) total_removed_values: u32
 }
 
 impl Default for PropagatorQueue {
