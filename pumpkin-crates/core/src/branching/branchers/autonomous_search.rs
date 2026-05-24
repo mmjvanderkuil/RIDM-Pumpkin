@@ -8,10 +8,11 @@ use crate::branching::BrancherEvent;
 use crate::branching::SelectionContext;
 use crate::branching::value_selection::InDomainMin;
 use crate::branching::variable_selection::InputOrder;
+use crate::conflict_resolving::LearnedNogood;
 use crate::containers::KeyValueHeap;
 use crate::containers::StorageKey;
 use crate::create_statistics_struct;
-use crate::engine::Assignments;
+use crate::engine::{Assignments, State};
 use crate::engine::predicates::predicate::Predicate;
 use crate::propagation::ReadDomains;
 use crate::results::Solution;
@@ -351,6 +352,7 @@ impl<BackupBrancher: Brancher> Brancher for AutonomousSearch<BackupBrancher> {
         .collect()
     }
 
+    fn on_learned_nogood(&mut self, _learned_nogood: &LearnedNogood, state: &mut State) {}
 }
 
 #[cfg(test)]

@@ -27,7 +27,7 @@ use crate::basic_types::StoredConflictInfo;
 use crate::basic_types::time::Instant;
 use crate::branching::Brancher;
 use crate::branching::SelectionContext;
-use crate::conflict_resolving::ConflictAnalysisContext;
+use crate::conflict_resolving::{ConflictAnalysisContext, LearnedNogood};
 use crate::conflict_resolving::ConflictResolver;
 use crate::containers::HashMap;
 use crate::containers::HashSet;
@@ -240,6 +240,8 @@ impl ConstraintSatisfactionSolver {
             fn subscribe_to_events(&self) -> Vec<crate::branching::BrancherEvent> {
                 unreachable!()
             }
+
+            fn on_learned_nogood(&mut self, _learned_nogood: &LearnedNogood, state: &mut State) {}
         }
 
         let mut conflict_analysis_context = ConflictAnalysisContext {

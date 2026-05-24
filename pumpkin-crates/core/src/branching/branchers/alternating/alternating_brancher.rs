@@ -9,7 +9,9 @@ use crate::branching::Brancher;
 use crate::branching::SelectionContext;
 use crate::branching::brancher::BrancherEvent;
 use crate::branching::branchers::alternating::strategies::AlternatingStrategy;
+use crate::conflict_resolving::LearnedNogood;
 use crate::engine::predicates::predicate::Predicate;
+use crate::engine::State;
 use crate::engine::variables::DomainId;
 use crate::statistics::StatisticLogger;
 
@@ -130,5 +132,12 @@ impl<Strategy: AlternatingStrategy, OtherBrancher: Brancher> Brancher
             .chain(self.default_brancher.subscribe_to_events())
             .chain(self.other_brancher.subscribe_to_events())
             .collect()
+    }
+
+    fn on_learned_nogood(&mut self, learned_nogood: &LearnedNogood, state: &mut State) {
+        self.default_brancher.on_learned_nogood(learned_nogood, state);
+        if !self.strategy.will_always_use_default() {
+            self.other_brancher.on_learned_nogood(learned_nogood, state);
+        }
     }
 }

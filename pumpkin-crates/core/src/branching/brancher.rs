@@ -21,6 +21,7 @@ use crate::engine::predicates::predicate::Predicate;
 use crate::engine::variables::DomainId;
 #[cfg(doc)]
 use crate::results::solution_iterator::SolutionIterator;
+use crate::state::State;
 use crate::statistics::StatisticLogger;
 
 /// A trait for definining a branching strategy (oftentimes utilising a [`VariableSelector`] and a
@@ -123,7 +124,8 @@ pub trait Brancher {
     fn on_learned_nogood(
         &mut self,
         _learned_nogood: &LearnedNogood,
-    ) {}
+        state: &mut State
+    );
 }
 
 /// The events which can occur for a [`Brancher`]. Used for returning which events are relevant in

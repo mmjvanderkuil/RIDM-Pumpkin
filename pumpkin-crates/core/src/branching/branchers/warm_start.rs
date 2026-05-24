@@ -1,6 +1,8 @@
 use crate::branching::Brancher;
 use crate::branching::BrancherEvent;
 use crate::branching::SelectionContext;
+use crate::conflict_resolving::LearnedNogood;
+use crate::engine::State;
 use crate::predicate;
 use crate::predicates::Predicate;
 use crate::pumpkin_assert_eq_simple;
@@ -67,4 +69,6 @@ impl<Var: IntegerVariable> Brancher for WarmStart<Var> {
     fn subscribe_to_events(&self) -> Vec<BrancherEvent> {
         vec![BrancherEvent::Solution, BrancherEvent::Synchronise]
     }
+
+    fn on_learned_nogood(&mut self, _learned_nogood: &LearnedNogood, state: &mut State) {}
 }

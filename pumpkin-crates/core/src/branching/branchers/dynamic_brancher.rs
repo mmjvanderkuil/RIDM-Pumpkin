@@ -16,6 +16,7 @@ use crate::conflict_resolving::LearnedNogood;
 use crate::containers::HashSet;
 use crate::engine::predicates::predicate::Predicate;
 use crate::engine::variables::DomainId;
+use crate::state::State;
 use crate::statistics::StatisticLogger;
 
 /// An implementation of a [`Brancher`] which takes a [`Vec`] of `Box<dyn Brancher>` and
@@ -171,9 +172,10 @@ impl Brancher for DynamicBrancher {
     fn on_learned_nogood(
         &mut self,
         learned_nogood: &LearnedNogood,
+        state: &mut State
     ) {
         self.branchers.iter_mut().for_each(|brancher| {
-            brancher.on_learned_nogood(learned_nogood);
+            brancher.on_learned_nogood(learned_nogood,state);
         });
     }
 }

@@ -9,7 +9,9 @@ use crate::branching::SelectionContext;
 use crate::branching::brancher::BrancherEvent;
 use crate::branching::value_selection::ValueSelector;
 use crate::branching::variable_selection::VariableSelector;
+use crate::conflict_resolving::LearnedNogood;
 use crate::engine::predicates::predicate::Predicate;
+use crate::engine::State;
 use crate::engine::variables::DomainId;
 
 /// An implementation of a [`Brancher`] which simply uses a single
@@ -98,4 +100,6 @@ where
             .chain(self.value_selector.subscribe_to_events())
             .collect()
     }
+
+    fn on_learned_nogood(&mut self, _learned_nogood: &LearnedNogood, state: &mut State) {}
 }
