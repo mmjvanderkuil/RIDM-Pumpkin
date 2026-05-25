@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 use crate::containers::KeyedVec;
+use crate::create_statistics_struct;
 use crate::propagation::Priority;
 use crate::propagation::PropagatorId;
 use crate::pumpkin_assert_moderate;
@@ -13,12 +14,15 @@ pub(crate) struct PropagatorQueue {
     queues: Vec<VecDeque<PropagatorId>>,
     is_enqueued: KeyedVec<PropagatorId, bool>,
     num_enqueued: usize,
-    bump_value: KeyedVec<PropagatorId, f32>,
-    total_bump: f32,
     present_priorities: BinaryHeap<Reverse<u32>>,
-    pub(crate) num_priority_changes: usize,
-    last_priorities: KeyedVec<PropagatorId, Option<Priority>>,
     pub(crate) dynamic_priority_adaptation: bool,
+    pub(crate) statistics: PropagatorPrioritiesStatistics
+}
+
+create_statistics_struct!{
+    PropagatorPrioritiesStatistics {
+        num_priority_changes: usize,
+    }
 }
 
 pub(crate) struct PropagationOutcome {
@@ -39,13 +43,10 @@ impl PropagatorQueue {
         PropagatorQueue {
             queues: vec![VecDeque::new(); num_priority_levels as usize],
             is_enqueued: KeyedVec::default(),
-            bump_value: KeyedVec::default(),
-            total_bump: 0.0,
             num_enqueued: 0,
             present_priorities: BinaryHeap::new(),
-            num_priority_changes: 0,
-            last_priorities: KeyedVec::default(),
             dynamic_priority_adaptation: false,
+            statistics: PropagatorPrioritiesStatistics::default(),
         }
     }
 
@@ -53,17 +54,11 @@ impl PropagatorQueue {
         self.num_enqueued == 0
     }
 
-    pub(crate) fn enqueue_propagator(&mut self, propagator_id: PropagatorId, priority: Priority) {
+    pub(crate) fn enqueue_propagator(&mut self, propagator_id: PropagatorId, mut priority: Priority) {
         pumpkin_assert_moderate!((priority as usize) < self.queues.len());
 
         if self.dynamic_priority_adaptation {
-            self.last_priorities.accomodate(propagator_id, None);
-            if let Some(last) = self.last_priorities[propagator_id] {
-                if last != priority {
-                    self.num_priority_changes += 1;
-                }
-            }
-            self.last_priorities[propagator_id] = Some(priority);
+            priority = self.calculate_priority(propagator_id, priority)
         }
 
         if !self.is_propagator_enqueued(propagator_id) {
@@ -80,28 +75,10 @@ impl PropagatorQueue {
 
     /// Alters the parameters used for calculating the dynamic priority of the propagator
     pub(crate) fn record_propagation_outcome(&mut self, propagator_id: PropagatorId, outcome: PropagationOutcome) {
-        self.bump_value.accomodate(propagator_id, 0.0);
-        // Did the propagator prune any domains?
-        if outcome.total_removed_values == 0 {
-            self.bump_value[propagator_id] -= 1.0;
-        } 
-        // Did the propagator find a conflict?
-        else if outcome.found_conflict {
-            self.bump_value[propagator_id] += 1.0;
-        } 
-        // The propagator must have pruned but did not find a conflict
-        else {
-            self.bump_value[propagator_id] = 0.0;
-        }
     }
 
-    pub(crate) fn calculate_dynamic_priority(&mut self, propagator_id: PropagatorId, priority: Priority) -> Priority {
-        self.bump_value.accomodate(propagator_id, 0.0);
-        let bump_value = self.bump_value[propagator_id];
-        // TODO: What is a good way to calculate a new dynamic priority
-        let new_priority = (priority as usize as f32) - bump_value;
-
-        return Priority::from(new_priority)
+    fn calculate_priority(&mut self, propagator_id: PropagatorId, priority: Priority) -> Priority {
+        priority
     }
 
     pub(crate) fn pop(&mut self) -> Option<PropagatorId> {
@@ -198,10 +175,8 @@ use crate::propagation::Priority;
             total_removed_values: 5
         });
 
-        let priority = queue.calculate_dynamic_priority(PropagatorId(1), Priority::Medium);
-        queue.enqueue_propagator(PropagatorId(1), priority);
-        let priority = queue.calculate_dynamic_priority(PropagatorId(0), Priority::High);
-        queue.enqueue_propagator(PropagatorId(0), priority);
+        queue.enqueue_propagator(PropagatorId(1), Priority::Medium);
+        queue.enqueue_propagator(PropagatorId(0), Priority::High);
         assert_eq!(PropagatorId(1), queue.pop().unwrap());
         assert_eq!(PropagatorId(0), queue.pop().unwrap());
 

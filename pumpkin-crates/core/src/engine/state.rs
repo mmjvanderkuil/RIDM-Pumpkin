@@ -230,7 +230,7 @@ impl State {
         );
         log_statistic(
             "numPriorityChanges",
-            self.propagator_queue.num_priority_changes,
+            self.propagator_queue.statistics.num_priority_changes,
         );
 
         if true {
@@ -694,10 +694,10 @@ impl State {
         };
         let propagation_end = Instant::now();
         let propagation_time = propagation_end - propagation_start;
+        self.statistics.total_propagator_time += propagation_time.as_micros() as u64;
         let total_removed_values =
             self.sum_removed_values_from_trail(num_trail_entries_before, self.assignments.num_trail_entries());
 
-        self.statistics.total_propagator_time += propagation_time.as_micros() as u64;
 
         let num_trail_entries_after = self.assignments.num_trail_entries();
         if num_trail_entries_after > num_trail_entries_before {
