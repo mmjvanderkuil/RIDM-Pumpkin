@@ -1,5 +1,6 @@
 use itertools::Itertools;
-use num::integer::{div_floor, mod_floor};
+use num::abs;
+use num::integer::div_floor;
 use pumpkin_checking::CheckerVariable;
 use crate::basic_types::SolutionReference;
 use crate::branching::Brancher;
@@ -20,6 +21,8 @@ use crate::statistics::moving_averages::CumulativeMovingAverage;
 use crate::statistics::moving_averages::MovingAverage;
 use crate::variables::DomainId;
 
+const DOMAIN_SIZE: usize = 100;
+
 #[derive(Debug, Clone, Copy)]
 struct DomainValueId  {
     id: DomainId,
@@ -28,26 +31,32 @@ struct DomainValueId  {
 
 impl StorageKey for DomainValueId {
     fn index(&self) -> usize {
-        if self.value >= 0{
-            (self.id.index() * 1000 + self.value as usize)
+        let dom_loc = self.id.index() * DOMAIN_SIZE;
+        if self.value <= 0 {
+            dom_loc + 2 * abs(self.value) as usize
         } else {
-            ((self.id.index() + 1 ) as i32 * 1000 + self.value) as usize
+            dom_loc + (2 * self.value as usize) - 1
         }
     }
 
     fn create_from_index(index: usize) -> Self {
-        let pos_id = div_floor(index,1000);
-        let dom_id: DomainId;
-        let mut value:i32 = mod_floor(index as i32, 1000);
-        if value > 500 {
-            dom_id = DomainId::create_from_index(pos_id-1);
-            value = value - 1000
+        let dom_id = DomainId::create_from_index(div_floor(index, DOMAIN_SIZE));
+        let remainder = index % DOMAIN_SIZE;
+
+        // Consider the mapping 0, 1, -1, 2, -2 -> 0, 1, 2, 3, 4, 5
+        // where:
+        // i > 0:     i => 2i-1,
+        // i <= 0:    i => 2|i|
+        if remainder == 0 {
+            DomainValueId { id: dom_id, value: 0 }
+        } else if remainder == 1 {
+            DomainValueId { id: dom_id, value: 1 }
+        } else if remainder % 2 == 1 {
+            let i = (remainder / 2).saturating_sub(1);
+            DomainValueId { id: dom_id, value: i as i32 }
         } else {
-            dom_id = DomainId::create_from_index(pos_id)
-        }
-        DomainValueId {
-            id: dom_id,
-            value: value,
+            let i: i32 = (remainder / 2) as i32;
+            return DomainValueId { id: dom_id, value: -i }
         }
     }
 }
@@ -115,24 +124,37 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
     fn resize_heap(&mut self, id: DomainValueId, p_type: PredicateType) {
         match p_type {
             PredicateType::Equal => {
+                // while self.heap_eq.len() <= id.index() {
+                //     self.heap_eq.grow(id, DEFAULT_VALUE);
+                // }
                 while self.heap_eq.len() <= id.index() {
-                    self.heap_eq.grow(id, DEFAULT_VALUE);
+                    let next_key = DomainValueId::create_from_index(self.heap_eq.len());
+                    eprintln!("next_key: {:?}", next_key);
+                    self.heap_eq.grow(next_key, 0.0);
                 }
+                self.heap_eq.restore_key(id);
+
             },
             PredicateType::NotEqual => {
                 while self.heap_ne.len() <= id.index() {
-                    self.heap_eq.grow(id, DEFAULT_VALUE);
+                    let next_key = DomainValueId::create_from_index(self.heap_ne.len());
+                    self.heap_ne.grow(next_key, 0.0);
                 }
+                self.heap_ne.restore_key(id);
             },
             PredicateType::UpperBound => {
                 while self.heap_lt.len() <= id.index() {
-                    self.heap_lt.grow(id, DEFAULT_VALUE);
+                    let next_key = DomainValueId::create_from_index(self.heap_lt.len());
+                    self.heap_lt.grow(next_key, 0.0);
                 }
+                self.heap_lt.restore_key(id);
             },
             PredicateType::LowerBound => {
                 while self.heap_gt.len() <= id.index() {
-                    self.heap_eq.grow(id, DEFAULT_VALUE);
+                    let next_key = DomainValueId::create_from_index(self.heap_gt.len());
+                    self.heap_gt.grow(next_key, 0.0);
                 }
+                self.heap_gt.restore_key(id);
             }
         }
     }
@@ -215,7 +237,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                     if activity + self.increment > self.max_threshold {
                         self.divide_heaps();
                     }
-                    self.heap_eq.increment(dv_id, self.increment);
+                    self.heap_eq.increment(other_dv_id, self.increment);
                 }
 
 
@@ -225,16 +247,18 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                 let dv_idx = self.domain_values_to_increment(id, pred_type, value, state);
 
                 for (i,other_dv_id) in dv_idx.iter().enumerate() {
+                    self.resize_heap(*other_dv_id, PredicateType::UpperBound);
                     self.resize_heap(*other_dv_id, PredicateType::Equal);
                     if i == 0 {
                         // As we know that the counters over this domain will be strictly decreasing
                         // we only have to check if the lowest value counter will be exceeding the
                         // threshold
-                        let activity = self.heap_lt.get_value(*other_dv_id);
+                        let activity = self.heap_lt.get_value(*other_dv_id).max(*self.heap_eq.get_value(*other_dv_id));
                         if activity + self.increment > self.max_threshold {
                             self.divide_heaps();
                         }
                     }
+                    self.heap_eq.increment(*other_dv_id, self.increment);
                     self.heap_lt.increment(*other_dv_id, self.increment);
                 }
 
@@ -245,6 +269,7 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
 
                 for (i,other_dv_id) in dv_idx.iter().rev().enumerate() {
                     self.resize_heap(*other_dv_id, PredicateType::Equal);
+                    self.resize_heap(*other_dv_id, PredicateType::LowerBound);
                     if i == 0 {
                         // As we know that the counters over this domain will be strictly increasing
                         // we only have to check if the highest value counter will be exceeding the
@@ -488,11 +513,7 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
         .collect()
     }
 
-    fn on_learned_nogood(
-        &mut self,
-        learned_nogood: &LearnedNogood,
-        state: &mut State,
-    ) {
+    fn on_learned_nogood(&mut self, learned_nogood: &LearnedNogood, state: &mut State) {
         eprintln!("Learned nogood with {} predicates:", learned_nogood.predicates.len());
         for (i, predicate) in learned_nogood.predicates.iter().enumerate() {
             eprintln!("  [{}] {:?}", i, predicate);
