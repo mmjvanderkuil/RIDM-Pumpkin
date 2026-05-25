@@ -13,8 +13,12 @@ pub(crate) struct PropagatorQueue {
     queues: Vec<VecDeque<PropagatorId>>,
     is_enqueued: KeyedVec<PropagatorId, bool>,
     num_enqueued: usize,
-    bump_value: KeyedVec<PropagatorId, f32>,
-    total_bump: f32,
+    propagator_utility: KeyedVec<PropagatorId, f32>,
+    base_priorities: KeyedVec<PropagatorId, Option<Priority>>,
+    bin_sums: [f32; 4],
+    bin_counts: [usize; 4],
+    bin_averages: [f32; 4],
+    sorted_bins: [(usize, f32); 4],
     present_priorities: BinaryHeap<Reverse<u32>>,
     pub(crate) num_priority_changes: usize,
     last_priorities: KeyedVec<PropagatorId, Option<Priority>>,
@@ -39,9 +43,18 @@ impl PropagatorQueue {
         PropagatorQueue {
             queues: vec![VecDeque::new(); num_priority_levels as usize],
             is_enqueued: KeyedVec::default(),
-            bump_value: KeyedVec::default(),
-            total_bump: 0.0,
             num_enqueued: 0,
+            propagator_utility: KeyedVec::default(),
+            base_priorities: KeyedVec::default(),
+            bin_sums: [0.0; 4],
+            bin_counts: [0; 4],
+            bin_averages: [10.0, 1.0, 0.1, 0.0],
+            sorted_bins: [
+                (0, 10.0),
+                (1, 1.0),
+                (2, 0.1),
+                (3, 0.0),
+            ],
             present_priorities: BinaryHeap::new(),
             num_priority_changes: 0,
             last_priorities: KeyedVec::default(),
@@ -78,30 +91,89 @@ impl PropagatorQueue {
         }
     }
 
+    fn update_bin_average(&mut self, bin_idx: usize) {
+        if bin_idx >= 4 {
+            return;
+        }
+        let count = self.bin_counts[bin_idx];
+        if count > 0 {
+            self.bin_averages[bin_idx] = self.bin_sums[bin_idx] / count as f32;
+        } else {
+            let defaults = [10.0, 1.0, 0.1, 0.0];
+            self.bin_averages[bin_idx] = defaults[bin_idx];
+        }
+
+        // Rebuild sorted_bins
+        self.sorted_bins = [
+            (0, self.bin_averages[0]),
+            (1, self.bin_averages[1]),
+            (2, self.bin_averages[2]),
+            (3, self.bin_averages[3]),
+        ];
+        // Sort using a simple bubble/insertion sort (4 elements only)
+        for i in 1..4 {
+            let mut j = i;
+            while j > 0 && self.sorted_bins[j - 1].1 < self.sorted_bins[j].1 {
+                self.sorted_bins.swap(j - 1, j);
+                j -= 1;
+            }
+        }
+    }
+
     /// Alters the parameters used for calculating the dynamic priority of the propagator
     pub(crate) fn record_propagation_outcome(&mut self, propagator_id: PropagatorId, outcome: PropagationOutcome) {
-        self.bump_value.accomodate(propagator_id, 0.0);
-        // Did the propagator prune any domains?
-        if outcome.total_removed_values == 0 {
-            self.bump_value[propagator_id] -= 1.0;
-        } 
-        // Did the propagator find a conflict?
-        else if outcome.found_conflict {
-            self.bump_value[propagator_id] += 1.0;
-        } 
-        // The propagator must have pruned but did not find a conflict
-        else {
-            self.bump_value[propagator_id] = 0.0;
+        self.propagator_utility.accomodate(propagator_id, 0.0);
+        self.base_priorities.accomodate(propagator_id, None);
+
+        let old_util = self.propagator_utility[propagator_id];
+        let run_util = (outcome.total_removed_values as f32 + if outcome.found_conflict { 1000.0 } else { 0.0 }) / (outcome.time.as_micros() as f32 + 1.0);
+        let new_util = 0.8 * old_util + 0.2 * run_util;
+        self.propagator_utility[propagator_id] = new_util;
+
+        // If we know the base priority, update sums/averages in O(1)
+        if let Some(Some(base_priority)) = self.base_priorities.get(propagator_id) {
+            let bin_idx = *base_priority as usize;
+            if bin_idx < 4 {
+                self.bin_sums[bin_idx] = self.bin_sums[bin_idx] - old_util + new_util;
+                self.update_bin_average(bin_idx);
+            }
         }
     }
 
     pub(crate) fn calculate_dynamic_priority(&mut self, propagator_id: PropagatorId, priority: Priority) -> Priority {
-        self.bump_value.accomodate(propagator_id, 0.0);
-        let bump_value = self.bump_value[propagator_id];
-        // TODO: What is a good way to calculate a new dynamic priority
-        let new_priority = (priority as usize as f32) - bump_value;
+        self.propagator_utility.accomodate(propagator_id, 0.0);
+        self.base_priorities.accomodate(propagator_id, None);
 
-        return Priority::from(new_priority)
+        if self.base_priorities[propagator_id].is_none() {
+            self.base_priorities[propagator_id] = Some(priority);
+            let bin_idx = priority as usize;
+            if bin_idx < 4 {
+                self.bin_counts[bin_idx] += 1;
+                let util = self.propagator_utility[propagator_id];
+                self.bin_sums[bin_idx] += util;
+                self.update_bin_average(bin_idx);
+            }
+        }
+
+        let util = self.propagator_utility[propagator_id];
+
+        // Find which sorted bin is closest to the current utility in O(1)
+        let mut best_idx = 0;
+        let mut min_dist = f32::MAX;
+        for i in 0..4 {
+            let dist = (util - self.sorted_bins[i].1).abs();
+            if dist < min_dist {
+                min_dist = dist;
+                best_idx = i;
+            }
+        }
+
+        match best_idx {
+            0 => Priority::High,
+            1 => Priority::Medium,
+            2 => Priority::Low,
+            _ => Priority::VeryLow,
+        }
     }
 
     pub(crate) fn pop(&mut self) -> Option<PropagatorId> {
@@ -154,9 +226,9 @@ impl PropagatorQueue {
 mod tests {
     use std::time::Duration;
 
-use crate::engine::PropagatorQueue;
+    use crate::engine::PropagatorQueue;
     use crate::engine::cp::propagator_queue::PropagationOutcome;
-use crate::propagation::Priority;
+    use crate::propagation::Priority;
     use crate::state::PropagatorId;
 
     #[test]
