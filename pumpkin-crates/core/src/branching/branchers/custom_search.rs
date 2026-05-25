@@ -105,6 +105,41 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
         self.ensure_heap_entry(variable);
         self.heap.increment(variable, increment);
     }
+
+    fn domain_values_to_increment(&mut self, id: DomainId, predicate: PredicateType, value:i32, context: &SelectionContext) -> Vec<i32> {
+        let mut dv_idx: Vec<i32> = vec![];
+        match predicate {
+            PredicateType::UpperBound => {
+                // Less than == upper bound
+                // if [x <= v] => also increase [x <= v+i] for i = -1, -2, ...
+                // As those also validate this predicate
+                let lb = context.lower_bound(id);
+                for val in lb..=value {
+                    dv_idx.push(val);
+                }
+            },
+            PredicateType::LowerBound => {
+                // Greater than == lower bound
+                // if [x >= v] => also increase [x >= v+i] for i = 1,2,...
+                // As those also validate this predicate
+                let ub = context.upper_bound(id);
+                for val in value..=ub {
+                    dv_idx.push(val);
+                }
+            },
+            PredicateType::NotEqual => {
+                let lb = context.lower_bound(id);
+                let ub = context.upper_bound(id);
+                for val in lb..=ub {
+                    if val != value {
+                        dv_idx.push(val);
+                    }
+                }
+            }
+            _ => ()
+        };
+        dv_idx
+    }
 }
 
 impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
@@ -240,6 +275,30 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
         learned_nogood: &LearnedNogood,
         context: &SelectionContext,
     ) {
+        for predicate in &learned_nogood.predicates {
+            let variable = predicate.get_domain();
+            let value = predicate.get_right_hand_side();
+
+            let values_to_bump = self.domain_values_to_increment(variable, predicate.get_predicate_type(), value, context);
+            if predicate.is_lower_bound_predicate() {
+                for value in values_to_bump {
+                    self.bump_value_activity(variable, value, true, false);
+                }
+            } else if predicate.is_upper_bound_predicate() {
+                for value in values_to_bump {
+                    self.bump_value_activity(variable, value, false, true);
+                }
+            } else if predicate.is_equality_predicate() {
+                self.bump_value_activity(variable, value, false, false);
+            } else if predicate.is_not_equal_predicate() {
+                self.bump_value_activity(variable, value.saturating_sub(1), false, true);
+                self.bump_value_activity(variable, value.saturating_add(1), true, false);
+                for value in values_to_bump {
+                    self.bump_value_activity(variable, value, false, false);
+                }
+            }
+        }
+
         self.backup_brancher.on_learned_nogood(learned_nogood, context);
     }
 }
