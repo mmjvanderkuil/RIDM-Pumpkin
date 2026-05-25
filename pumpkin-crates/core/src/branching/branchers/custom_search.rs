@@ -21,7 +21,7 @@ use crate::statistics::moving_averages::CumulativeMovingAverage;
 use crate::statistics::moving_averages::MovingAverage;
 use crate::variables::DomainId;
 
-const DOMAIN_SIZE: usize = 100;
+const DOMAIN_SIZE: usize = 1000;
 
 #[derive(Debug, Clone, Copy)]
 struct DomainValueId  {
@@ -31,6 +31,8 @@ struct DomainValueId  {
 
 impl StorageKey for DomainValueId {
     fn index(&self) -> usize {
+        // DomainId = D
+        // DDDDDDDxx
         let dom_loc = self.id.index() * DOMAIN_SIZE;
         if self.value <= 0 {
             dom_loc + 2 * abs(self.value) as usize
@@ -83,13 +85,16 @@ pub struct CustomSearch<BackupBrancher> {
 }
 
 create_statistics_struct!(CustomSearchStatistics {
-    num_backup_called: usize,
     num_predicates_removed: usize,
+    num_backup_called: usize,
     num_calls: usize,
     num_vars_added: usize,
     average_value_per_variable: CumulativeMovingAverage<usize>,
     average_size_of_heap: CumulativeMovingAverage<usize>,
-    num_assigned_predicates_encountered: usize,
+    num_assigned_predicates_encountered: usize,num_equality_decisions: usize,
+    num_not_equal_decisions: usize,
+    num_less_than_decisions: usize,
+    num_greater_than_decisions: usize,
 });
 
 const DEFAULT_INCREMENT: f64 = 1.0;
@@ -129,7 +134,6 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                 // }
                 while self.heap_eq.len() <= id.index() {
                     let next_key = DomainValueId::create_from_index(self.heap_eq.len());
-                    eprintln!("next_key: {:?}", next_key);
                     self.heap_eq.grow(next_key, 0.0);
                 }
                 self.heap_eq.restore_key(id);
@@ -382,121 +386,102 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
                                 return Some(predicate);
                             }
                         }
-                        _ => ()
+                        _ => return None
                     }
                 } else {
-                    // Encountered no max
-                    return None
+                    return None;
                 }
-            }
-        }
-    }
-
-    /// Determines whether the provided [`Predicate`] should be returned as is or whether its
-    /// negation should be returned. This is determined based on its assignment in the best-known
-    /// solution.
-    ///
-    /// For example, if we have found the solution `x = 5` then the call `determine_polarity([x >=
-    /// 3])` would return `true`.
-    fn determine_polarity(&self, predicate: Predicate) -> Predicate {
-        if let Some(solution) = &self.best_known_solution {
-            // We have a solution
-            if !solution.contains_domain_id(predicate.get_domain()) {
-                // This can occur if an encoding is used
-                return predicate;
-            }
-            // Match the truth value according to the best solution.
-            if solution.evaluate_predicate(predicate) == Some(true) {
-                predicate
             } else {
-                !predicate
+                return None;
             }
-        } else {
-            // We do not have a solution to match against, we simply return the predicate with
-            // positive polarity
-            predicate
         }
     }
-
-    // fn synchronise_internal(&mut self) {
-    //     // We drain the dormant predicates and add them back to the heap; we could check here
-    //     // whether the predicates are already satisfied but this appeared to introduce too much
-    //     // overhead in some cases.
-    //     self.dormant_predicates.drain(..).for_each(|predicate| {
-    //         let id = self.predicate_id_info.get_id(predicate);
-    //
-    //         while self.heap.len() <= id.index() {
-    //             self.heap.grow(id, DEFAULT_VALUE);
-    //         }
-    //
-    //         self.heap.restore_key(id);
-    //     });
-    // }
-
-
 }
 
 
 
 impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
     fn next_decision(&mut self, context: &mut SelectionContext) -> Option<Predicate> {
-        eprintln!("Current variable bounds:");
+        self.statistics.num_calls += 1;
+        let avg = (self.heap_lt.num_nonremoved_elements() + self.heap_gt.num_nonremoved_elements()
+            + self.heap_eq.num_nonremoved_elements() + self.heap_ne.num_nonremoved_elements())/4;
+        self.statistics
+            .average_size_of_heap
+            .add_term(avg);
 
-        for variable in context.get_domains() {
-            eprintln!(
-                "var {:?}: [{}, {}]",
-                variable,
-                context.lower_bound(variable),
-                context.upper_bound(variable)
-            );
+        let result = self
+            .next_candidate_predicate(context);
+        if result.is_none() && !context.are_all_variables_assigned() {
+            // There are variables for which we do not have a predicate, rely on the backup
+            self.statistics.num_backup_called += 1;
+            self.backup_brancher.next_decision(context)
+        } else {
+            if let Some(pred) = result {
+                self.statistics.num_equality_decisions += pred.is_equality_predicate() as usize;
+                self.statistics.num_greater_than_decisions += pred.is_lower_bound_predicate() as usize;
+                self.statistics.num_less_than_decisions += pred.is_upper_bound_predicate() as usize;
+                self.statistics.num_not_equal_decisions += pred.is_not_equal_predicate() as usize;
+            } else {
+
+                self.backup_brancher.next_decision(context);
+            }
+            result
         }
-        
-        self.backup_brancher.next_decision(context)
     }
 
-    fn log_statistics(&self, _statistic_logger: StatisticLogger) {
+    fn log_statistics(&self, statistic_logger: StatisticLogger) {
         // Implement logging of statistics if needed.
+        let statistic_logger = statistic_logger.attach_to_prefix("CustomBrancher");
+        self.statistics.log(statistic_logger);
+        // self.backup_brancher.log(statistic_logger);
     }
 
     fn on_backtrack(&mut self) {
         // Implement behavior on backtracking.
+        self.backup_brancher.on_backtrack();
     }
 
     fn synchronise(&mut self, _context: &mut SelectionContext) {
         // Implement synchronization logic if needed.
+        self.backup_brancher.synchronise(_context)
     }
 
     fn on_conflict(&mut self) {
         // Implement behavior on conflict.
+        self.backup_brancher.on_conflict();
     }
 
     fn on_solution(&mut self, _solution: SolutionReference) {
         // Implement behavior on finding a solution.
+        self.backup_brancher.on_solution(_solution);
     }
 
     fn on_appearance_in_conflict_predicate(&mut self, predicate: Predicate) {
         // Implement behavior when a predicate appears in a conflict.
-        let _variable = predicate.get_domain();
-
-        if predicate.is_lower_bound_predicate() {
-
-		} else if predicate.is_upper_bound_predicate() {
-		} else if predicate.is_not_equal_predicate() {
-		} else if predicate.is_equality_predicate() {
-		}
+        self.backup_brancher.on_appearance_in_conflict_predicate(predicate);
+        // let _variable = predicate.get_domain();
+        //
+        // if predicate.is_lower_bound_predicate() {
+        //
+		// } else if predicate.is_upper_bound_predicate() {
+		// } else if predicate.is_not_equal_predicate() {
+		// } else if predicate.is_equality_predicate() {
+		// }
     }
     
     fn on_restart(&mut self) {
         // Implement behavior on restart.
+        self.backup_brancher.on_restart();
     }
 
     fn on_unassign_integer(&mut self, _variable: DomainId, _value: i32) {
         // Implement behavior on unassigning an integer.
+        self.on_unassign_integer(_variable, _value);
     }
 
     fn is_restart_pointless(&mut self) -> bool {
         // Implement logic to determine if a restart is pointless.
-        false
+        self.backup_brancher.is_restart_pointless()
     }
 
     fn subscribe_to_events(&self) -> Vec<BrancherEvent> {
@@ -518,7 +503,6 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
         for (i, predicate) in learned_nogood.predicates.iter().enumerate() {
             eprintln!("  [{}] {:?}", i, predicate);
             self.bump_activity(*predicate, state);
-
         }
     }
 }
