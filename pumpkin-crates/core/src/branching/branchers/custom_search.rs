@@ -316,8 +316,22 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
             } else if predicate.is_equality_predicate() {
                 self.bump_value_activity(variable, value, true, true);
             } else if predicate.is_not_equal_predicate() {
-                self.bump_value_activity(variable, value.saturating_sub(1), false, true);
-                self.bump_value_activity(variable, value.saturating_add(1), true, false);
+                let lower = context.lower_bound(variable);
+                let upper = context.upper_bound(variable);
+
+                let le_end = value.saturating_sub(1).min(upper);
+                for implied_value in lower..=le_end {
+                    if context.contains(variable, implied_value) {
+                        self.bump_value_activity(variable, implied_value, false, true);
+                    }
+                }
+
+                let ge_start = value.saturating_add(1).max(lower);
+                for implied_value in ge_start..=upper {
+                    if context.contains(variable, implied_value) {
+                        self.bump_value_activity(variable, implied_value, true, false);
+                    }
+                }
             }
         }
         self.backup_brancher.on_learned_nogood(learned_nogood, context);
