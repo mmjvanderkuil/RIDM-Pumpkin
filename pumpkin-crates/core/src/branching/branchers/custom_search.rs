@@ -29,7 +29,6 @@ use crate::variables::DomainId;
 struct ValueActivity {
     ge: f64,
     le: f64,
-    total: f64,
 }
 
 /// A custom [`Brancher`] implementation.
@@ -43,7 +42,7 @@ pub struct CustomSearch<BackupBrancher> {
     increment: f64,
     // variable -> value -> activity
     var_val_activity: HashMap<DomainId, HashMap<i32, ValueActivity>>,
-    /// Stores the activity for a variable, using the max ValueActivity.total.
+    /// Stores the activity for a variable, using max(ge, le) across values.
     heap: KeyValueHeap<DomainId, f64>,
 }
 
@@ -83,19 +82,23 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
         self.heap.restore_key(variable);
     }
 
+    fn value_score(activity: &ValueActivity) -> f64 {
+        activity.ge.max(activity.le)
+    }
+
     fn refresh_heap_value_from_activity(&mut self, variable: DomainId) {
         let Some(value_activities) = self.var_val_activity.get(&variable) else {
             self.ensure_heap_entry(variable);
             return;
         };
 
-        let best_total = value_activities
+        let best_score = value_activities
             .values()
-            .map(|activity| activity.total)
+            .map(Self::value_score)
             .max_by(|a, b| a.total_cmp(b))
             .unwrap_or(0.0);
 
-        self.set_heap_value(variable, best_total);
+        self.set_heap_value(variable, best_score);
     }
 
     fn refresh_heap_value_from_context(&mut self, variable: DomainId, context: &SelectionContext) {
@@ -104,7 +107,7 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
             return;
         };
 
-        let mut best_total = f64::NEG_INFINITY;
+        let mut best_score = f64::NEG_INFINITY;
         let mut found = false;
 
         for value in context.lower_bound(variable)..=context.upper_bound(variable) {
@@ -123,18 +126,18 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
                 continue;
             }
 
-            let total = value_activities
+            let score = value_activities
                 .get(&value)
-                .map(|activity| activity.total)
+                .map(Self::value_score)
                 .unwrap_or(0.0);
-            if total > best_total {
-                best_total = total;
+            if score > best_score {
+                best_score = score;
                 found = true;
             }
         }
 
         if found {
-            self.set_heap_value(variable, best_total);
+            self.set_heap_value(variable, best_score);
         } else {
             self.heap.delete_key(variable);
         }
@@ -148,7 +151,7 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
         bump_le: bool,
     ) {
         let increment = self.increment;
-        let new_total = {
+        let new_score = {
             let value_activity = self
                 .ensure_variable_entry(variable)
                 .entry(value)
@@ -161,18 +164,12 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
                 value_activity.le += increment;
             }
 
-            let total_bumps = (bump_ge as u8 + bump_le as u8) as f64;
-            value_activity.total += if total_bumps > 0.0 {
-                total_bumps * increment
-            } else {
-                increment
-            };
-            value_activity.total
+            Self::value_score(value_activity)
         };
 
         self.ensure_heap_entry(variable);
-        if new_total > *self.heap.get_value(variable) {
-            self.set_heap_value(variable, new_total);
+        if new_score > *self.heap.get_value(variable) {
+            self.set_heap_value(variable, new_score);
         }
     }
 }
@@ -198,19 +195,19 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
             };
 
             let mut best_value = None;
-            let mut best_total = f64::NEG_INFINITY;
+            let mut best_score = f64::NEG_INFINITY;
 
             for value in context.lower_bound(variable)..=context.upper_bound(variable) {
                 if !context.contains(variable, value) {
                     continue;
                 }
 
-                let total = value_activities
+                let score = value_activities
                     .get(&value)
-                    .map(|activity| activity.total)
+                    .map(Self::value_score)
                     .unwrap_or(0.0);
-                if total > best_total {
-                    best_total = total;
+                if score > best_score {
+                    best_score = score;
                     best_value = Some(value);
                 }
             }
@@ -305,7 +302,7 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
             } else if predicate.is_upper_bound_predicate() {
                 self.bump_value_activity(variable, value, false, true);
             } else if predicate.is_equality_predicate() {
-                self.bump_value_activity(variable, value, false, false);
+                self.bump_value_activity(variable, value, true, true);
             } else if predicate.is_not_equal_predicate() {
                 self.bump_value_activity(variable, value.saturating_sub(1), false, true);
                 self.bump_value_activity(variable, value.saturating_add(1), true, false);
