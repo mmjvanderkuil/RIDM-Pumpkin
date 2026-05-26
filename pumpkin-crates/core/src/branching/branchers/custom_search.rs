@@ -86,6 +86,14 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
         activity.ge.max(activity.le)
     }
 
+    fn preferred_predicate_type(activity: &ValueActivity) -> PredicateType {
+        if activity.ge >= activity.le {
+            PredicateType::LowerBound
+        } else {
+            PredicateType::UpperBound
+        }
+    }
+
     fn refresh_heap_value_from_activity(&mut self, variable: DomainId) {
         let Some(value_activities) = self.var_val_activity.get(&variable) else {
             self.ensure_heap_entry(variable);
@@ -206,9 +214,25 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
                     .get(&value)
                     .map(Self::value_score)
                     .unwrap_or(0.0);
+                let direction = value_activities.get(&value).cloned().unwrap_or_default();
+
                 if score > best_score {
                     best_score = score;
                     best_value = Some(value);
+                } else if score.total_cmp(&best_score).is_eq() {
+                    let should_replace = match Self::preferred_predicate_type(&direction) {
+                        PredicateType::LowerBound => {
+                            best_value.map(|current| value < current).unwrap_or(true)
+                        }
+                        PredicateType::UpperBound => {
+                            best_value.map(|current| value > current).unwrap_or(true)
+                        }
+                        _ => false,
+                    };
+
+                    if should_replace {
+                        best_value = Some(value);
+                    }
                 }
             }
 
@@ -218,11 +242,7 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
             };
 
             let direction = value_activities.get(&value).cloned().unwrap_or_default();
-            let predicate_type = if direction.ge >= direction.le {
-                PredicateType::LowerBound
-            } else {
-                PredicateType::UpperBound
-            };
+            let predicate_type = Self::preferred_predicate_type(&direction);
             let predicate = Predicate::new(variable, predicate_type, value);
 
             if context.is_predicate_assigned(predicate) {
