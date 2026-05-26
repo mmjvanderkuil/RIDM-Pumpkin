@@ -75,6 +75,71 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
         self.heap.restore_key(var);
     }
 
+    fn set_heap_value(&mut self, variable: DomainId, new_value: f64) {
+        self.ensure_heap_entry(variable);
+        self.heap.delete_key(variable);
+        let current = *self.heap.get_value(variable);
+        self.heap.increment(variable, new_value - current);
+        self.heap.restore_key(variable);
+    }
+
+    fn refresh_heap_value_from_activity(&mut self, variable: DomainId) {
+        let Some(value_activities) = self.var_val_activity.get(&variable) else {
+            self.ensure_heap_entry(variable);
+            return;
+        };
+
+        let best_total = value_activities
+            .values()
+            .map(|activity| activity.total)
+            .max_by(|a, b| a.total_cmp(b))
+            .unwrap_or(0.0);
+
+        self.set_heap_value(variable, best_total);
+    }
+
+    fn refresh_heap_value_from_context(&mut self, variable: DomainId, context: &SelectionContext) {
+        let Some(value_activities) = self.var_val_activity.get(&variable) else {
+            self.heap.delete_key(variable);
+            return;
+        };
+
+        let mut best_total = f64::NEG_INFINITY;
+        let mut found = false;
+
+        for value in context.lower_bound(variable)..=context.upper_bound(variable) {
+            if !context.contains(variable, value) {
+                continue;
+            }
+
+            let direction = value_activities.get(&value).cloned().unwrap_or_default();
+            let predicate_type = if direction.ge >= direction.le {
+                PredicateType::LowerBound
+            } else {
+                PredicateType::UpperBound
+            };
+            let predicate = Predicate::new(variable, predicate_type, value);
+            if context.is_predicate_assigned(predicate) {
+                continue;
+            }
+
+            let total = value_activities
+                .get(&value)
+                .map(|activity| activity.total)
+                .unwrap_or(0.0);
+            if total > best_total {
+                best_total = total;
+                found = true;
+            }
+        }
+
+        if found {
+            self.set_heap_value(variable, best_total);
+        } else {
+            self.heap.delete_key(variable);
+        }
+    }
+
     fn bump_value_activity(
         &mut self,
         variable: DomainId,
@@ -83,27 +148,32 @@ impl<BackupBrancher> CustomSearch<BackupBrancher> {
         bump_le: bool,
     ) {
         let increment = self.increment;
-        let value_activity = self
-            .ensure_variable_entry(variable)
-            .entry(value)
-            .or_default();
+        let new_total = {
+            let value_activity = self
+                .ensure_variable_entry(variable)
+                .entry(value)
+                .or_default();
 
-        if bump_ge {
-            value_activity.ge += increment;
-        }
-        if bump_le {
-            value_activity.le += increment;
-        }
+            if bump_ge {
+                value_activity.ge += increment;
+            }
+            if bump_le {
+                value_activity.le += increment;
+            }
 
-        let total_bumps = (bump_ge as u8 + bump_le as u8) as f64;
-        value_activity.total += if total_bumps > 0.0 {
-            total_bumps * increment
-        } else {
-            increment
+            let total_bumps = (bump_ge as u8 + bump_le as u8) as f64;
+            value_activity.total += if total_bumps > 0.0 {
+                total_bumps * increment
+            } else {
+                increment
+            };
+            value_activity.total
         };
 
         self.ensure_heap_entry(variable);
-        self.heap.increment(variable, increment);
+        if new_total > *self.heap.get_value(variable) {
+            self.set_heap_value(variable, new_total);
+        }
     }
 }
 
@@ -159,7 +229,7 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
             let predicate = Predicate::new(variable, predicate_type, value);
 
             if context.is_predicate_assigned(predicate) {
-                let _ = self.heap.pop_max();
+                self.refresh_heap_value_from_context(variable, context);
                 continue;
             }
 
@@ -191,20 +261,6 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
     }
 
     fn on_appearance_in_conflict_predicate(&mut self, predicate: Predicate) {
-        let variable = predicate.get_domain();
-        let value = predicate.get_right_hand_side();
-
-        if predicate.is_lower_bound_predicate() {
-            self.bump_value_activity(variable, value, true, false);
-        } else if predicate.is_upper_bound_predicate() {
-            self.bump_value_activity(variable, value, false, true);
-        } else if predicate.is_equality_predicate() {
-            self.bump_value_activity(variable, value, true, true);
-        } else if predicate.is_not_equal_predicate() {
-            self.bump_value_activity(variable, value.saturating_sub(1), false, true);
-            self.bump_value_activity(variable, value.saturating_add(1), true, false);
-        }
-
         self.backup_brancher.on_appearance_in_conflict_predicate(predicate);
     }
     
@@ -212,8 +268,8 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
         self.backup_brancher.on_restart();
     }
 
-    // TODO: add back variable to the heap?
     fn on_unassign_integer(&mut self, variable: DomainId, value: i32) {
+        self.refresh_heap_value_from_activity(variable);
         self.backup_brancher.on_unassign_integer(variable, value);
     }
 
@@ -240,6 +296,21 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
         learned_nogood: &LearnedNogood,
         context: &SelectionContext,
     ) {
+        for predicate in &learned_nogood.predicates {
+            let variable = predicate.get_domain();
+            let value = predicate.get_right_hand_side();
+
+            if predicate.is_lower_bound_predicate() {
+                self.bump_value_activity(variable, value, true, false);
+            } else if predicate.is_upper_bound_predicate() {
+                self.bump_value_activity(variable, value, false, true);
+            } else if predicate.is_equality_predicate() {
+                self.bump_value_activity(variable, value, false, false);
+            } else if predicate.is_not_equal_predicate() {
+                self.bump_value_activity(variable, value.saturating_sub(1), false, true);
+                self.bump_value_activity(variable, value.saturating_add(1), true, false);
+            }
+        }
         self.backup_brancher.on_learned_nogood(learned_nogood, context);
     }
 }
