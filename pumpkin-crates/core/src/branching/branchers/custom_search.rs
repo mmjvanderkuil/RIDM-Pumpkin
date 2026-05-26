@@ -298,9 +298,21 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
             let value = predicate.get_right_hand_side();
 
             if predicate.is_lower_bound_predicate() {
-                self.bump_value_activity(variable, value, true, false);
+                let start = value.max(context.lower_bound(variable));
+                let end = context.upper_bound(variable);
+                for implied_value in start..=end {
+                    if context.contains(variable, implied_value) {
+                        self.bump_value_activity(variable, implied_value, true, false);
+                    }
+                }
             } else if predicate.is_upper_bound_predicate() {
-                self.bump_value_activity(variable, value, false, true);
+                let start = context.lower_bound(variable);
+                let end = value.min(context.upper_bound(variable));
+                for implied_value in start..=end {
+                    if context.contains(variable, implied_value) {
+                        self.bump_value_activity(variable, implied_value, false, true);
+                    }
+                }
             } else if predicate.is_equality_predicate() {
                 self.bump_value_activity(variable, value, true, true);
             } else if predicate.is_not_equal_predicate() {
