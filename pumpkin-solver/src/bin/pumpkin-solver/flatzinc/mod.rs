@@ -167,8 +167,12 @@ pub(crate) fn solve<R: ConflictResolver>(
     //     instance.search.expect("Expected a search to be defined")
     // };
 
+    // let mut brancher = DynamicBrancher::new(vec![Box::new(
+    //     CustomSearch::new(solver.default_brancher()),
+    // )]);
+
     let mut brancher = DynamicBrancher::new(vec![Box::new(
-        CustomSearch::new(solver.default_brancher()),
+        solver.default_brancher()
     )]);
 
     let (direction, objective): (OptimisationDirection, DomainId) =
