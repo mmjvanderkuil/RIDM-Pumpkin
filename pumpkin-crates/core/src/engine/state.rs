@@ -679,9 +679,12 @@ impl State {
         self.statistics.num_propagators_called += 1;
 
         let num_trail_entries_before = self.assignments.num_trail_entries();
-        let propagation_start = Instant::now();
+        let propagation_status;
 
-        let propagation_status = {
+        #[cfg(feature = "dynamic-priorities")] 
+        let propagation_start = Instant::now();
+        
+        propagation_status = {
             let propagator = &mut self.propagators[propagator_id];
             let context = PropagationContext::new(
                 &mut self.trailed_values,
@@ -692,25 +695,26 @@ impl State {
             );
             propagator.propagate(context)
         };
-        let propagation_end = Instant::now();
-        let propagation_time = propagation_end - propagation_start;
-        self.statistics.total_propagator_time += propagation_time.as_micros() as u64;
+        
+
+        let num_trail_entries_after = self.assignments.num_trail_entries();
         let total_removed_values =
             self.sum_removed_values_from_trail(num_trail_entries_before, self.assignments.num_trail_entries());
 
 
-        let num_trail_entries_after = self.assignments.num_trail_entries();
         if num_trail_entries_after > num_trail_entries_before {
             self.statistics.num_pruning_calls += 1;
             self.statistics.total_prune_amount += total_removed_values as u64;
-        } else {
-            self.statistics.non_pruning_propagator_time += propagation_time.as_micros() as u64;
         }
 
-        #[cfg(feature = "check-propagations")]
-        self.check_propagations(num_trail_entries_before);
+        #[cfg(feature = "dynamic-priorities")]
+        {
+            let propagation_end = Instant::now();
+            let propagation_time = propagation_end - propagation_start;
+            self.statistics.total_propagator_time += propagation_time.as_micros() as u64;
 
-        if self.propagator_queue.dynamic_priority_adaptation {
+
+
             self.propagator_queue.record_propagation_outcome(
                 propagator_id,
                 PropagationOutcome {
@@ -720,6 +724,9 @@ impl State {
                 },
             );
         }
+        
+        #[cfg(feature = "check-propagations")]
+        self.check_propagations(num_trail_entries_before);
 
         match propagation_status {
             Ok(_) => {

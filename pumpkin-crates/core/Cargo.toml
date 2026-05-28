@@ -42,3 +42,4 @@ wasm-bindgen-test = "0.3"
 check-propagations = []
 debug-checks = []
 clap = ["dep:clap"]
+dynamic-priorities = []

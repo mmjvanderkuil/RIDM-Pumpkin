@@ -400,10 +400,6 @@ struct Args {
     /// The amount of memory (in MB) that is preallocated for storing nogoods.
     #[arg(long = "memory-preallocated", default_value_t = 50)]
     memory_preallocated: usize,
-
-    /// Whether to dynamically adapt propagator priorities during propagation.
-    #[arg(long = "dynamic-priority", default_value_t = false)]
-    dynamic_priority: bool,
 }
 
 fn configure_logging(
@@ -591,7 +587,6 @@ fn run() -> PumpkinResult<()> {
             ConflictResolverType::HalfExtendedUIP => AnalysisMode::HalfExtendedUIP,
             ConflictResolverType::BoundsExtendedUIP => AnalysisMode::BoundsExtendedUIP,
         },
-        dynamic_priority_adaptation: args.dynamic_priority,
     };
 
     let time_limit = args.time_limit.map(Duration::from_millis);

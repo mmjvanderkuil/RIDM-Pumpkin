@@ -15,7 +15,6 @@ pub(crate) struct PropagatorQueue {
     is_enqueued: KeyedVec<PropagatorId, bool>,
     num_enqueued: usize,
     present_priorities: BinaryHeap<Reverse<u32>>,
-    pub(crate) dynamic_priority_adaptation: bool,
     pub(crate) statistics: PropagatorPrioritiesStatistics
 }
 
@@ -45,7 +44,6 @@ impl PropagatorQueue {
             is_enqueued: KeyedVec::default(),
             num_enqueued: 0,
             present_priorities: BinaryHeap::new(),
-            dynamic_priority_adaptation: false,
             statistics: PropagatorPrioritiesStatistics::default(),
         }
     }
@@ -57,8 +55,9 @@ impl PropagatorQueue {
     pub(crate) fn enqueue_propagator(&mut self, propagator_id: PropagatorId, mut priority: Priority) {
         pumpkin_assert_moderate!((priority as usize) < self.queues.len());
 
-        if self.dynamic_priority_adaptation {
-            priority = self.calculate_priority(propagator_id, priority)
+        #[cfg(feature = "dynamic-priorities")]
+        {
+            priority = self.calculate_priority(propagator_id, priority);
         }
 
         if !self.is_propagator_enqueued(propagator_id) {
@@ -74,9 +73,11 @@ impl PropagatorQueue {
     }
 
     /// Alters the parameters used for calculating the dynamic priority of the propagator
+    #[cfg(feature = "dynamic-priorities")]
     pub(crate) fn record_propagation_outcome(&mut self, propagator_id: PropagatorId, outcome: PropagationOutcome) {
     }
 
+    #[cfg(feature = "dynamic-priorities")]
     fn calculate_priority(&mut self, propagator_id: PropagatorId, priority: Priority) -> Priority {
         priority
     }
