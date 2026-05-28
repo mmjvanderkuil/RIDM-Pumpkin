@@ -18,6 +18,8 @@ pub(crate) struct PropagatorQueue {
     pub(crate) statistics: PropagatorPrioritiesStatistics,
     #[cfg(feature = "utility-bins")]
     utility_bins: UtilityBins,
+    #[cfg(feature = "normal-estimator")]
+    normal_est: NormalEstimator,
 }
 
 #[cfg(feature = "utility-bins")]
@@ -76,12 +78,18 @@ impl UtilityBins {
         }
     }
 
-    pub(crate) fn record_propagation_outcome(&mut self, propagator_id: PropagatorId, outcome: PropagationOutcome) {
+    pub(crate) fn record_propagation_outcome(
+        &mut self,
+        propagator_id: PropagatorId,
+        outcome: PropagationOutcome,
+    ) {
         self.propagator_utility.accomodate(propagator_id, 0.0);
         self.base_priorities.accomodate(propagator_id, None);
 
         let old_util = self.propagator_utility[propagator_id];
-        let run_util = (outcome.total_removed_values as f32 + if outcome.found_conflict { 1000.0 } else { 0.0 }) / (outcome.time.as_micros() as f32 + 1.0);
+        let run_util = (outcome.total_removed_values as f32
+            + if outcome.found_conflict { 1000.0 } else { 0.0 })
+            / (outcome.time.as_micros() as f32 + 1.0);
         let new_util = 0.8 * old_util + 0.2 * run_util;
         self.propagator_utility[propagator_id] = new_util;
 
@@ -135,6 +143,89 @@ impl UtilityBins {
     }
 }
 
+#[cfg(feature = "normal-estimator")]
+#[derive(Clone, Debug)]
+struct NormalEstimator {
+    /// Cumulative sum of x^0, x^1, x^2
+    t: [f32; 3],
+    /// Mean
+    total_mean: f32,
+    /// Standard Deviation
+    sd: f32,
+
+    alpha: f32,
+    propagator_means: KeyedVec<PropagatorId, f32>,
+    is_measured: KeyedVec<PropagatorId, bool>,
+}
+
+#[cfg( feature = "normal-estimator")]
+impl Default for NormalEstimator {
+    fn default() -> Self {
+
+        Self {
+            t: Default::default(),
+            total_mean: 0.0,
+            sd: 0.0,
+            alpha: 0.8,
+            propagator_means: Default::default(),
+            is_measured: Default::default(),
+        }
+    }
+}
+
+#[cfg(feature = "normal-estimator")]
+impl NormalEstimator {
+    const QUARTILE: f32 = 0.67448;
+
+    fn record_propagation_outcome(
+        &mut self,
+        propagator_id: PropagatorId,
+        outcome: PropagationOutcome,
+    ) {
+        // Calculate the new value
+        let value = outcome.total_removed_values as f32 / (outcome.time.as_millis() as f32 + 0.00001);
+        self.is_measured.accomodate(propagator_id, false);
+        if self.is_measured[propagator_id] {
+            let p_mean = self.propagator_means[propagator_id];
+            let new_mean = self.alpha * value + (1.0 - self.alpha) * p_mean;
+            self.propagator_means[propagator_id] = new_mean;
+
+            // Update the t-parameters
+            self.t[1] += new_mean - p_mean;
+            self.t[2] += new_mean * new_mean - p_mean * p_mean;
+        } else {
+            self.propagator_means.accomodate(propagator_id, 0.0);
+            self.propagator_means[propagator_id] = value;
+            self.is_measured[propagator_id] = true;
+            self.t[0] += 1.0;
+            self.t[1] += value;
+            self.t[2] += value * value;
+        }
+
+        if self.t[0] > 1.5 {
+            self.total_mean = self.t[1] / self.t[0];
+            self.sd = 1.0 / self.t[0]
+                * (self.t[0] / (self.t[0] - 1.0)).sqrt()
+                * (self.t[0] * self.t[2] - self.t[1] * self.t[1]).sqrt()
+
+        }
+    }
+
+    fn calculate_dynamic_priority(
+        &mut self,
+        propagator_id: PropagatorId,
+        priority: Priority,
+    ) -> Priority {
+        match self.propagator_means.get(propagator_id) {
+            None if self.t[0] < 1.5 => priority, // Base priority if we do not yet have enough values
+            Some(&x) if x < self.total_mean - Self::QUARTILE * self.sd => Priority::VeryLow,
+            Some(&x) if x < self.total_mean => Priority::Low,
+            Some(&x) if x < self.total_mean + Self::QUARTILE * self.sd => Priority::Medium,
+            _ => Priority::High
+        }
+    }
+}
+
 create_statistics_struct! {
     PropagatorPrioritiesStatistics {
         num_priority_changes: usize,
@@ -164,6 +255,8 @@ impl PropagatorQueue {
             statistics: PropagatorPrioritiesStatistics::default(),
             #[cfg(feature = "utility-bins")]
             utility_bins: UtilityBins::default(),
+            #[cfg(feature = "normal-estimator")]
+            normal_est: NormalEstimator::default(),
         }
     }
 
@@ -203,10 +296,12 @@ impl PropagatorQueue {
         outcome: PropagationOutcome,
     ) {
         #[cfg(feature = "utility-bins")]
-        {
-            self.utility_bins
-                .record_propagation_outcome(propagator_id, outcome);
-        }
+        self.utility_bins
+            .record_propagation_outcome(propagator_id, outcome);
+
+        #[cfg(feature = "normal-estimator")]
+        self.normal_est
+            .record_propagation_outcome(propagator_id, outcome);
     }
 
     #[cfg(feature = "dynamic-priorities")]
@@ -215,6 +310,16 @@ impl PropagatorQueue {
         {
             let dynamic_priority = self
                 .utility_bins
+                .calculate_dynamic_priority(propagator_id, priority);
+            if dynamic_priority != priority {
+                self.statistics.num_priority_changes += 1;
+            }
+            return dynamic_priority;
+        }
+        #[cfg(feature = "normal-estimator")]
+        {
+            let dynamic_priority = self
+                .normal_est
                 .calculate_dynamic_priority(propagator_id, priority);
             if dynamic_priority != priority {
                 self.statistics.num_priority_changes += 1;
@@ -273,8 +378,8 @@ impl PropagatorQueue {
 mod tests {
     use std::time::Duration;
 
-    use crate::engine::PropagatorQueue;
     use crate::engine::cp::propagator_queue::PropagationOutcome;
+    use crate::engine::PropagatorQueue;
     use crate::propagation::Priority;
     use crate::state::PropagatorId;
 
