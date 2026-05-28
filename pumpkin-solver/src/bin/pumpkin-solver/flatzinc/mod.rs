@@ -143,28 +143,32 @@ pub(crate) fn solve<R: ConflictResolver>(
 
     let init_time = init_start_time.elapsed();
 
-    let mut brancher = if options.free_search {
-        // The free search flag is active
-        if instance.objective_function.is_some() {
-            // If there is an objective, then we use the provided search until the first solution,
-            // and then we switch to default search
-            DynamicBrancher::new(vec![Box::new(AlternatingBrancher::new(
-                &solver,
-                instance.search.expect("Expected a search to be defined"),
-                UntilSolution::new(EveryXRestarts::new(1)),
-            ))])
-        } else {
-            // If there is no objective, then we alternate between the provided strategy and the
-            // default search every restart
-            DynamicBrancher::new(vec![Box::new(AlternatingBrancher::new(
-                &solver,
-                instance.search.expect("Expected a search to be defined"),
-                EveryXRestarts::new(1),
-            ))])
-        }
-    } else {
-        instance.search.expect("Expected a search to be defined")
-    };
+    // let mut brancher = if options.free_search {
+    //     // The free search flag is active
+    //     if instance.objective_function.is_some() {
+    //         // If there is an objective, then we use the provided search until the first solution,
+    //         // and then we switch to default search
+    //         DynamicBrancher::new(vec![Box::new(AlternatingBrancher::new(
+    //             &solver,
+    //             instance.search.expect("Expected a search to be defined"),
+    //             UntilSolution::new(EveryXRestarts::new(1)),
+    //         ))])
+    //     } else {
+    //         // If there is no objective, then we alternate between the provided strategy and the
+    //         // default search every restart
+    //         DynamicBrancher::new(vec![Box::new(AlternatingBrancher::new(
+    //             &solver,
+    //             instance.search.expect("Expected a search to be defined"),
+    //             EveryXRestarts::new(1),
+    //         ))])
+    //     }
+    // } else {
+    //     instance.search.expect("Expected a search to be defined")
+    // };
+
+   let mut brancher = DynamicBrancher::new(vec![Box::new(
+        solver.default_brancher()
+    )]);
 
     let (direction, objective): (OptimisationDirection, DomainId) =
         match instance.objective_function {
