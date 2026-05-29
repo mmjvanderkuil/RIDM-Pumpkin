@@ -2,6 +2,7 @@ use crate::DefaultBrancher;
 use crate::basic_types::SolutionReference;
 use crate::branching::Brancher;
 use crate::branching::BrancherEvent;
+use crate::branching::branchers::autonomous_search::AutonomousSearchStatistics;
 use crate::branching::SelectionContext;
 use crate::branching::value_selection::InDomainMiddle;
 use crate::branching::value_selection::ValueSelector;
@@ -12,7 +13,8 @@ use crate::containers::KeyValueHeap;
 use crate::containers::StorageKey;
 use crate::engine::Assignments;
 use crate::predicates::Predicate;
-use crate::statistics::StatisticLogger;
+use crate::statistics::moving_averages::MovingAverage;
+use crate::statistics::{Statistic, StatisticLogger};
 use crate::variables::DomainId;
 
 /// A custom [`Brancher`] implementation.
@@ -41,6 +43,7 @@ pub struct VariableActivitySearch<BackupBrancher> {
     decay_factor: f64,
     /// Tracks whether dormant variables should be restored before selecting next decision.
     should_synchronise: bool,
+    statistics: AutonomousSearchStatistics,
 }
 
 const DEFAULT_INCREMENT: f64 = 1.0;
@@ -68,6 +71,7 @@ impl DefaultBrancher {
             max_threshold: DEFAULT_MAX_THRESHOLD,
             should_synchronise: false,
             heap: KeyValueHeap::default(),
+            statistics: AutonomousSearchStatistics::default()
         }
     }
 
@@ -87,6 +91,7 @@ impl<BackupBrancher> VariableActivitySearch<BackupBrancher> {
             max_threshold: DEFAULT_MAX_THRESHOLD,
             should_synchronise: false,
             heap: KeyValueHeap::default(),
+            statistics: AutonomousSearchStatistics::default()
         }
     }
 
@@ -98,6 +103,7 @@ impl<BackupBrancher> VariableActivitySearch<BackupBrancher> {
     }
 
     fn bump_activity(&mut self, variable: DomainId) {
+        self.statistics.num_predicates_added += 1;
         self.ensure_heap_entry(variable);
         self.heap.restore_key(variable);
 
@@ -126,6 +132,7 @@ impl<BackupBrancher> VariableActivitySearch<BackupBrancher> {
             };
 
             if context.is_integer_fixed(variable) {
+                self.statistics.num_assigned_predicates_encountered += 1;
                 let _ = self.heap.pop_max();
                 self.heap.delete_key(variable);
                 self.dormant_variables.push(variable);
@@ -148,6 +155,9 @@ impl<BackupBrancher> VariableActivitySearch<BackupBrancher> {
 
 impl<BackupBrancher: Brancher> Brancher for VariableActivitySearch<BackupBrancher> {
     fn next_decision(&mut self, context: &mut SelectionContext) -> Option<Predicate> {
+        self.statistics.num_calls += 1;
+        self.statistics.average_size_of_heap.add_term(self.heap.num_nonremoved_elements());
+
         if self.should_synchronise {
             self.restore_dormant_variables();
             self.should_synchronise = false;
@@ -160,11 +170,14 @@ impl<BackupBrancher: Brancher> Brancher for VariableActivitySearch<BackupBranche
         if context.are_all_variables_assigned() {
             None
         } else {
+            self.statistics.num_backup_called;
             self.backup_brancher.next_decision(context)
         }
     }
 
-    fn log_statistics(&self, _statistic_logger: StatisticLogger) {}
+    fn log_statistics(&self, statistic_logger: StatisticLogger) {
+        self.statistics.log(statistic_logger)
+    }
 
     fn on_backtrack(&mut self) {
         self.backup_brancher.on_backtrack();
