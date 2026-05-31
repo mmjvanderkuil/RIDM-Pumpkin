@@ -39,10 +39,6 @@ getrandom = { version = "0.2", features = ["js"] }
 wasm-bindgen-test = "0.3"
 
 [features]
-default = ["normal-estimator"]
 check-propagations = []
 debug-checks = []
 clap = ["dep:clap"]
-dynamic-priorities = []
-utility-bins = ["dynamic-priorities"]
-normal-estimator = ["dynamic-priorities"]

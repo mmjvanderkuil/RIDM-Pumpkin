@@ -685,7 +685,6 @@ impl State {
         let num_trail_entries_before = self.assignments.num_trail_entries();
         let propagation_status;
 
-        #[cfg(feature = "dynamic-priorities")] 
         let propagation_start = Instant::now();
         
         propagation_status = {
@@ -711,23 +710,20 @@ impl State {
             self.statistics.total_prune_amount += total_removed_values as u64;
         }
 
-        #[cfg(feature = "dynamic-priorities")]
-        {
-            let propagation_end = Instant::now();
-            let propagation_time = propagation_end - propagation_start;
-            self.statistics.total_propagator_time += propagation_time.as_micros() as u64;
+        let propagation_end = Instant::now();
+        let propagation_time = propagation_end - propagation_start;
+        self.statistics.total_propagator_time += propagation_time.as_micros() as u64;
 
 
 
-            self.propagator_queue.record_propagation_outcome(
-                propagator_id,
-                PropagationOutcome {
-                    time: propagation_time,
-                    found_conflict: propagation_status.is_err(),
-                    total_removed_values,
-                },
-            );
-        }
+        self.propagator_queue.record_propagation_outcome(
+            propagator_id,
+            PropagationOutcome {
+                time: propagation_time,
+                found_conflict: propagation_status.is_err(),
+                total_removed_values,
+            },
+        );
         
         #[cfg(feature = "check-propagations")]
         self.check_propagations(num_trail_entries_before);
