@@ -17,6 +17,7 @@ pub use constraint_satisfaction_solver::ConflictResolverType;
 pub(crate) use constraint_satisfaction_solver::ConstraintSatisfactionSolver;
 pub use constraint_satisfaction_solver::SatisfactionSolverOptions;
 pub use cp::EmptyDomain;
+pub use cp::PropagatorUtilityFormula;
 pub(crate) use cp::*;
 pub(crate) use debug_helper::DebugDyn;
 pub(crate) use debug_helper::DebugHelper;

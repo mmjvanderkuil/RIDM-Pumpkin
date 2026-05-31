@@ -8,6 +8,7 @@ pub(crate) use assignments::Assignments;
 pub(crate) use assignments::ConstraintProgrammingTrailEntry;
 pub use assignments::EmptyDomain;
 pub(crate) use propagator_queue::{PropagatorQueue, PropagationOutcome};
+pub use propagator_queue::PropagatorUtilityFormula;
 pub use trailed::*;
 
 #[cfg(test)]

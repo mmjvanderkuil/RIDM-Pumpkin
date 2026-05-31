@@ -71,6 +71,7 @@ pub mod options {
     pub use crate::engine::ConflictResolverType;
     pub use crate::engine::RestartOptions;
     pub use crate::engine::SatisfactionSolverOptions as SolverOptions;
+    pub use crate::engine::PropagatorUtilityFormula;
     pub use crate::propagators::nogoods::LearningOptions;
     pub use crate::propagators::reified_propagator::ReifiedPropagatorArgs;
 }

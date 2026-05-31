@@ -404,6 +404,18 @@ struct Args {
     /// Whether to dynamically adapt propagator priorities during propagation.
     #[arg(long = "dynamic-priority", default_value_t = false)]
     dynamic_priority: bool,
+
+    /// The formula to use for calculating propagator utility.
+    #[arg(long = "propagator-utility-formula", value_enum, default_value_t)]
+    propagator_utility_formula: PropagatorUtilityFormula,
+
+    /// The decay factor for updating propagator utility (0.0 to 1.0).
+    #[arg(long = "propagator-utility-decay", default_value_t = 0.8)]
+    propagator_utility_decay: f32,
+
+    /// The conflict weight for the default propagator utility formula.
+    #[arg(long = "propagator-utility-conflict-weight", default_value_t = 1000.0)]
+    propagator_utility_conflict_weight: f32,
 }
 
 fn configure_logging(
@@ -592,6 +604,9 @@ fn run() -> PumpkinResult<()> {
             ConflictResolverType::BoundsExtendedUIP => AnalysisMode::BoundsExtendedUIP,
         },
         dynamic_priority_adaptation: args.dynamic_priority,
+        propagator_utility_formula: args.propagator_utility_formula,
+        propagator_utility_decay: args.propagator_utility_decay,
+        propagator_utility_conflict_weight: args.propagator_utility_conflict_weight,
     };
 
     let time_limit = args.time_limit.map(Duration::from_millis);

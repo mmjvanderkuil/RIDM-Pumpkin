@@ -8,6 +8,50 @@ use crate::propagation::Priority;
 use crate::propagation::PropagatorId;
 use crate::pumpkin_assert_moderate;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
+pub enum PropagatorUtilityFormula {
+    #[default]
+    Default,
+    ConflictRate,
+    PruningRate,
+    Conflicts,
+    Prunings,
+}
+
+impl PropagatorUtilityFormula {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().replace('_', "-").as_str() {
+            "default" => Some(PropagatorUtilityFormula::Default),
+            "conflict-rate" | "conflict_rate" => Some(PropagatorUtilityFormula::ConflictRate),
+            "pruning-rate" | "pruning_rate" => Some(PropagatorUtilityFormula::PruningRate),
+            "conflicts" => Some(PropagatorUtilityFormula::Conflicts),
+            "prunings" => Some(PropagatorUtilityFormula::Prunings),
+            _ => None,
+        }
+    }
+
+    pub fn from_env() -> Option<Self> {
+        std::env::var("PUMPKIN_UTILITY_FORMULA")
+            .ok()
+            .and_then(|val| Self::from_str(&val))
+    }
+
+    pub fn get_decay() -> f32 {
+        std::env::var("PUMPKIN_UTILITY_DECAY")
+            .ok()
+            .and_then(|val| val.parse().ok())
+            .unwrap_or(0.8)
+    }
+
+    pub fn get_conflict_weight() -> f32 {
+        std::env::var("PUMPKIN_UTILITY_CONFLICT_WEIGHT")
+            .ok()
+            .and_then(|val| val.parse().ok())
+            .unwrap_or(1000.0)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct PropagatorQueue {
     queues: Vec<VecDeque<PropagatorId>>,
@@ -23,6 +67,9 @@ pub(crate) struct PropagatorQueue {
     pub(crate) num_priority_changes: usize,
     last_priorities: KeyedVec<PropagatorId, Option<Priority>>,
     pub(crate) dynamic_priority_adaptation: bool,
+    pub(crate) propagator_utility_formula: PropagatorUtilityFormula,
+    pub(crate) propagator_utility_decay: f32,
+    pub(crate) propagator_utility_conflict_weight: f32,
 }
 
 pub(crate) struct PropagationOutcome {
@@ -59,6 +106,9 @@ impl PropagatorQueue {
             num_priority_changes: 0,
             last_priorities: KeyedVec::default(),
             dynamic_priority_adaptation: false,
+            propagator_utility_formula: PropagatorUtilityFormula::default(),
+            propagator_utility_decay: 0.8,
+            propagator_utility_conflict_weight: 1000.0,
         }
     }
 
@@ -126,8 +176,25 @@ impl PropagatorQueue {
         self.base_priorities.accomodate(propagator_id, None);
 
         let old_util = self.propagator_utility[propagator_id];
-        let run_util = (outcome.total_removed_values as f32 + if outcome.found_conflict { 1000.0 } else { 0.0 }) / (outcome.time.as_micros() as f32 + 1.0);
-        let new_util = 0.8 * old_util + 0.2 * run_util;
+        let run_util = match self.propagator_utility_formula {
+            PropagatorUtilityFormula::Default => {
+                (outcome.total_removed_values as f32 + if outcome.found_conflict { self.propagator_utility_conflict_weight } else { 0.0 }) / (outcome.time.as_micros() as f32 + 1.0)
+            }
+            PropagatorUtilityFormula::ConflictRate => {
+                (if outcome.found_conflict { 1.0 } else { 0.0 }) / (outcome.time.as_micros() as f32 + 1.0)
+            }
+            PropagatorUtilityFormula::PruningRate => {
+                outcome.total_removed_values as f32 / (outcome.time.as_micros() as f32 + 1.0)
+            }
+            PropagatorUtilityFormula::Conflicts => {
+                if outcome.found_conflict { 1.0 } else { 0.0 }
+            }
+            PropagatorUtilityFormula::Prunings => {
+                outcome.total_removed_values as f32
+            }
+        };
+        let decay = self.propagator_utility_decay;
+        let new_util = decay * old_util + (1.0 - decay) * run_util;
         self.propagator_utility[propagator_id] = new_util;
 
         // If we know the base priority, update sums/averages in O(1)
@@ -278,5 +345,35 @@ mod tests {
         assert_eq!(PropagatorId(0), queue.pop().unwrap());
 
         assert_eq!(None, queue.pop());
+    }
+
+    #[test]
+    fn test_custom_utility_formulas() {
+        use crate::engine::cp::propagator_queue::PropagatorUtilityFormula;
+
+        // 1. ConflictRate Formula
+        let mut queue = PropagatorQueue::default();
+        queue.propagator_utility_formula = PropagatorUtilityFormula::ConflictRate;
+        queue.record_propagation_outcome(PropagatorId(0), PropagationOutcome {
+            time: Duration::from_micros(999),
+            found_conflict: true,
+            total_removed_values: 5,
+        });
+        // old_util = 0.0, run_util = 1.0 / (999.0 + 1.0) = 0.001
+        // new_util = 0.8 * 0.0 + 0.2 * 0.001 = 0.0002
+        assert_eq!(queue.propagator_utility[PropagatorId(0)], 0.0002);
+
+        // 2. Prunings Formula with custom decay
+        let mut queue = PropagatorQueue::default();
+        queue.propagator_utility_formula = PropagatorUtilityFormula::Prunings;
+        queue.propagator_utility_decay = 0.5;
+        queue.record_propagation_outcome(PropagatorId(0), PropagationOutcome {
+            time: Duration::from_secs(10),
+            found_conflict: false,
+            total_removed_values: 10,
+        });
+        // old_util = 0.0, run_util = 10.0
+        // new_util = 0.5 * 0.0 + 0.5 * 10.0 = 5.0
+        assert_eq!(queue.propagator_utility[PropagatorId(0)], 5.0);
     }
 }

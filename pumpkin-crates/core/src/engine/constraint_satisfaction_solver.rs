@@ -36,6 +36,7 @@ use crate::engine::Assignments;
 use crate::engine::RestartOptions;
 use crate::engine::RestartStrategy;
 use crate::engine::State;
+use crate::engine::PropagatorUtilityFormula;
 use crate::engine::predicates::predicate::Predicate;
 use crate::options::LearningOptions;
 use crate::proof::ConstraintTag;
@@ -189,6 +190,9 @@ pub struct SatisfactionSolverOptions {
     pub analysis_mode: AnalysisMode,
     /// Whether to dynamically adapt propagator priorities during propagation.
     pub dynamic_priority_adaptation: bool,
+    pub propagator_utility_formula: PropagatorUtilityFormula,
+    pub propagator_utility_decay: f32,
+    pub propagator_utility_conflict_weight: f32,
 }
 
 impl Default for SatisfactionSolverOptions {
@@ -202,6 +206,9 @@ impl Default for SatisfactionSolverOptions {
             memory_preallocated: 50,
             analysis_mode: AnalysisMode::default(),
             dynamic_priority_adaptation: false,
+            propagator_utility_formula: PropagatorUtilityFormula::from_env().unwrap_or_default(),
+            propagator_utility_decay: PropagatorUtilityFormula::get_decay(),
+            propagator_utility_conflict_weight: PropagatorUtilityFormula::get_conflict_weight(),
         }
     }
 }
@@ -280,6 +287,9 @@ impl ConstraintSatisfactionSolver {
     pub fn new(solver_options: SatisfactionSolverOptions) -> Self {
         let mut state = State::default();
         state.propagator_queue.dynamic_priority_adaptation = solver_options.dynamic_priority_adaptation;
+        state.propagator_queue.propagator_utility_formula = solver_options.propagator_utility_formula;
+        state.propagator_queue.propagator_utility_decay = solver_options.propagator_utility_decay;
+        state.propagator_queue.propagator_utility_conflict_weight = solver_options.propagator_utility_conflict_weight;
         let handle = state.add_propagator(NogoodPropagatorConstructor::new(
             (solver_options.memory_preallocated * 1_000_000) / size_of::<PredicateId>(),
             solver_options.learning_options,
