@@ -12,7 +12,7 @@ use crate::create_statistics_struct;
 use crate::propagation::Priority;
 use crate::propagation::PropagatorId;
 use crate::pumpkin_assert_moderate;
-use crate::statistics::StatisticLogger;
+use crate::statistics::log_statistic;
 
 pub(crate) trait PropagatorQueue: Debug + DynClone {
     fn is_empty(&self) -> bool;
@@ -36,7 +36,7 @@ pub(crate) trait PropagatorQueue: Debug + DynClone {
         _outcome: PropagationOutcome,
     ) {}
 
-    fn log_statistics(&self, _statistic_logger: StatisticLogger) {}
+    fn log_statistics(&self) {}
 }
 
 clone_trait_object!(PropagatorQueue);
@@ -144,6 +144,10 @@ impl PropagatorQueue for StaticPropagatorQueue {
             .get(propagator_id)
             .copied()
             .unwrap_or_default()
+    }
+
+    fn log_statistics(&self) {
+        log_statistic("numberOfPrioritiesChanged", self.statistics.num_priority_changes);
     }
 }
 
@@ -286,6 +290,10 @@ impl PropagatorQueue for UtilityBins {
                 self.update_bin_average(bin_idx);
             }
         }
+    }
+
+    fn log_statistics(&self) {
+        log_statistic("numberOfPrioritiesChanged", self.statistics.num_priority_changes);
     }
 
 }
@@ -493,6 +501,10 @@ impl PropagatorQueue for NormalEstimatorBins {
                 * (self.t[0] * self.t[2] - self.t[1] * self.t[1]).sqrt()
 
         }
+    }
+
+    fn log_statistics(&self) {
+        log_statistic("numberOfPrioritiesChanged", self.statistics.num_priority_changes);
     }
 }
 

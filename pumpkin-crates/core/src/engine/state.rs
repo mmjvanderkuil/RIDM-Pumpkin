@@ -235,8 +235,7 @@ impl State {
             "nonPruningPropagatorTimeMicros",
             self.statistics.non_pruning_propagator_time,
         );
-        let statistic_logger = StatisticLogger::new(["propagatorQueue"]);
-        self.propagator_queue.log_statistics(statistic_logger);
+        self.propagator_queue.log_statistics();
 
         if true {
             log_statistic(

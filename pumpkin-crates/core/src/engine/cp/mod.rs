@@ -7,6 +7,7 @@ mod trailed;
 pub(crate) use assignments::Assignments;
 pub(crate) use assignments::ConstraintProgrammingTrailEntry;
 pub use assignments::EmptyDomain;
+#[allow(unused_imports)]
 pub(crate) use propagator_queue::{
     PropagationOutcome,
     PropagatorQueue,
