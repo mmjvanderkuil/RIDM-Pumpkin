@@ -14,6 +14,7 @@ use crate::engine::ConstraintProgrammingTrailEntry;
 use crate::engine::DebugHelper;
 use crate::engine::EmptyDomain;
 use crate::engine::PropagatorQueue;
+use crate::engine::StaticPropagatorQueue;
 use crate::engine::PropagationOutcome;
 #[cfg(test)]
 use crate::engine::Reason;
@@ -71,7 +72,7 @@ pub struct State {
     /// The names of the variables in the solver.
     pub(crate) variable_names: VariableNames,
     /// Dictates the order in which propagators will be called to propagate.
-    pub(crate) propagator_queue: PropagatorQueue,
+    pub(crate) propagator_queue: Box<dyn PropagatorQueue>,
     /// Handles storing information about propagation reasons, which are used later to construct
     /// explanations during conflict analysis.
     pub(crate) reason_store: ReasonStore,
@@ -173,11 +174,17 @@ impl EmptyDomainConflict {
 
 impl Default for State {
     fn default() -> Self {
+        Self::with_propagator_queue(Box::new(StaticPropagatorQueue::default()))
+    }
+}
+
+impl State {
+    pub(crate) fn with_propagator_queue(propagator_queue: Box<dyn PropagatorQueue>) -> Self {
         let mut result = Self {
             assignments: Default::default(),
             trailed_values: TrailedValues::default(),
             variable_names: VariableNames::default(),
-            propagator_queue: PropagatorQueue::default(),
+            propagator_queue,
             propagators: PropagatorStore::default(),
             reason_store: ReasonStore::default(),
             notification_engine: NotificationEngine::default(),
@@ -228,10 +235,8 @@ impl State {
             "nonPruningPropagatorTimeMicros",
             self.statistics.non_pruning_propagator_time,
         );
-        log_statistic(
-            "numPriorityChanges",
-            self.propagator_queue.statistics.num_priority_changes,
-        );
+        let statistic_logger = StatisticLogger::new(["propagatorQueue"]);
+        self.propagator_queue.log_statistics(statistic_logger);
 
         if true {
             log_statistic(
@@ -736,7 +741,7 @@ impl State {
                         &mut self.assignments,
                         &mut self.trailed_values,
                         &mut self.propagators,
-                        &mut self.propagator_queue,
+                        self.propagator_queue.as_mut(),
                     );
                 pumpkin_assert_extreme!(
                     DebugHelper::debug_check_propagations(
@@ -883,7 +888,7 @@ impl State {
                 &mut self.assignments,
                 &mut self.trailed_values,
                 &mut self.propagators,
-                &mut self.propagator_queue,
+                self.propagator_queue.as_mut(),
             );
 
         // Keep propagating until there are unprocessed propagators, or a conflict is detected.

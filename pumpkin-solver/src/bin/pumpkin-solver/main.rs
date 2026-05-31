@@ -400,6 +400,10 @@ struct Args {
     /// The amount of memory (in MB) that is preallocated for storing nogoods.
     #[arg(long = "memory-preallocated", default_value_t = 50)]
     memory_preallocated: usize,
+
+    /// Determines which propagation queue implementation is used.
+    #[arg(long = "propagation-queue", value_enum, default_value_t)]
+    propagation_queue: PropagationQueueType,
 }
 
 fn configure_logging(
@@ -580,6 +584,7 @@ fn run() -> PumpkinResult<()> {
         random_generator: SmallRng::seed_from_u64(args.random_seed),
         proof_log,
         learning_options,
+        propagation_queue_type: args.propagation_queue,
         analysis_mode: match args.conflict_resolver {
             ConflictResolverType::NoLearning => AnalysisMode::OneUIP,
             ConflictResolverType::UIP => AnalysisMode::OneUIP,

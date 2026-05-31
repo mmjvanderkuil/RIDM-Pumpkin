@@ -33,6 +33,7 @@ use crate::containers::HashMap;
 use crate::containers::HashSet;
 use crate::declare_inference_label;
 use crate::engine::Assignments;
+use crate::engine::PropagationQueueType;
 use crate::engine::RestartOptions;
 use crate::engine::RestartStrategy;
 use crate::engine::State;
@@ -186,6 +187,8 @@ pub struct SatisfactionSolverOptions {
     pub learning_options: LearningOptions,
     /// The number of MBs which are preallocated by the nogood propagator.
     pub memory_preallocated: usize,
+    /// Determines which propagation queue implementation is used.
+    pub propagation_queue_type: PropagationQueueType,
     pub analysis_mode: AnalysisMode,
 }
 
@@ -198,6 +201,7 @@ impl Default for SatisfactionSolverOptions {
             proof_log: ProofLog::default(),
             learning_options: LearningOptions::default(),
             memory_preallocated: 50,
+            propagation_queue_type: PropagationQueueType::default(),
             analysis_mode: AnalysisMode::default(),
         }
     }
@@ -275,7 +279,8 @@ impl ConstraintSatisfactionSolver {
 // methods that offer basic functionality
 impl ConstraintSatisfactionSolver {
     pub fn new(solver_options: SatisfactionSolverOptions) -> Self {
-        let mut state = State::default();
+        let mut state =
+            State::with_propagator_queue(solver_options.propagation_queue_type.create_queue());
         let handle = state.add_propagator(NogoodPropagatorConstructor::new(
             (solver_options.memory_preallocated * 1_000_000) / size_of::<PredicateId>(),
             solver_options.learning_options,

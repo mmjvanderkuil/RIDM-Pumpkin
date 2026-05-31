@@ -308,7 +308,7 @@ impl NotificationEngine {
         assignments: &mut Assignments,
         trailed_values: &mut TrailedValues,
         propagators: &mut PropagatorStore,
-        propagator_queue: &mut PropagatorQueue,
+        propagator_queue: &mut dyn PropagatorQueue,
     ) {
         // We first take the events because otherwise we get mutability issues when calling methods
         // on self
@@ -386,7 +386,7 @@ impl NotificationEngine {
     fn notify_predicate_id_satisfied(
         &mut self,
         propagators: &mut PropagatorStore,
-        propagator_queue: &mut PropagatorQueue,
+        propagator_queue: &mut dyn PropagatorQueue,
         trailed_values: &mut TrailedValues,
         assignments: &Assignments,
     ) {
@@ -416,7 +416,7 @@ impl NotificationEngine {
         local_id: LocalId,
         event: DomainEvent,
         propagators: &mut PropagatorStore,
-        propagator_queue: &mut PropagatorQueue,
+        propagator_queue: &mut dyn PropagatorQueue,
         assignments: &mut Assignments,
         trailed_values: &mut TrailedValues,
     ) {
@@ -460,7 +460,7 @@ impl NotificationEngine {
         assignments: &mut Assignments,
         trailed_values: &mut TrailedValues,
         propagators: &mut PropagatorStore,
-        propagator_queue: &mut PropagatorQueue,
+        propagator_queue: &mut dyn PropagatorQueue,
     ) {
         // Collect so that we can pass the assignments to the methods within the loop
         for (event, domain) in self.events.drain().collect::<Vec<_>>() {

@@ -7,7 +7,14 @@ mod trailed;
 pub(crate) use assignments::Assignments;
 pub(crate) use assignments::ConstraintProgrammingTrailEntry;
 pub use assignments::EmptyDomain;
-pub(crate) use propagator_queue::{PropagatorQueue, PropagationOutcome};
+pub(crate) use propagator_queue::{
+    PropagationOutcome,
+    PropagatorQueue,
+    StaticPropagatorQueue,
+    UtilityBins,
+    NormalEstimatorBins
+};
+pub use propagator_queue::PropagationQueueType;
 pub use trailed::*;
 
 #[cfg(test)]
