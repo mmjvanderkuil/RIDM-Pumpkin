@@ -526,6 +526,55 @@ impl NormalEstimatorBins {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct AverageHeap {
+    is_enqueued: KeyedVec<PropagatorId, bool>,
+    num_enqueued: usize,
+    queue: BinaryHeap<(Reverse<f32>, Reverse<u32>, PropagatorId)>,
+}
+
+impl Default for AverageHeap {
+    fn default() -> Self {
+        todo!()
+    }
+}
+
+impl PropagatorQueue for AverageHeap {
+    fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    fn enqueue_propagator(
+        &mut self,
+        propagator_id: PropagatorId,
+        priority: Priority,
+    ) {
+        pumpkin_assert_moderate!((priority as usize) < self.queues.len());
+        if !self.is_propagator_enqueued(propagator_id) {
+            self.is_enqueued.accomodate(propagator_id, false);
+            self.is_enqueued[propagator_id] = true;
+            self.num_enqueued += 1;
+
+            self.queue.push();
+        }
+    }
+
+    fn pop(&mut self) -> Option<PropagatorId>;
+
+    fn clear(&mut self);
+
+    fn is_propagator_enqueued(&self, propagator_id: PropagatorId) -> bool;
+
+    /// Alters the parameters used for calculating the dynamic priority of the propagator
+    fn record_propagation_outcome(
+        &mut self,
+        _propagator_id: PropagatorId,
+        _outcome: PropagationOutcome,
+    ) {}
+
+    fn log_statistics(&self) {}
+}
+
 create_statistics_struct! {
     PropagatorPrioritiesStatistics {
         num_priority_changes: usize,
