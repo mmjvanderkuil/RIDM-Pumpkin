@@ -48,6 +48,7 @@ pub enum PropagationQueueType {
     Static,
     UtilityBins,
     NormalEstimator,
+    AverageHeap,
 }
 
 impl PropagationQueueType {
@@ -58,6 +59,7 @@ impl PropagationQueueType {
             PropagationQueueType::NormalEstimator => {
                 Box::new(NormalEstimatorBins::default())
             }
+            PropagationQueueType::AverageHeap => Box::new(AverageHeap::default())
         }
     }
 }
@@ -395,7 +397,7 @@ impl Default for NormalEstimatorBins {
             t: Default::default(),
             total_mean: 0.0,
             sd: 0.0,
-            alpha: 0.8,
+            alpha: 0.2,
             propagator_means: Default::default(),
             is_measured: Default::default(),
             statistics: PropagatorPrioritiesStatistics::default(),
@@ -530,12 +532,55 @@ impl NormalEstimatorBins {
 pub(crate) struct AverageHeap {
     is_enqueued: KeyedVec<PropagatorId, bool>,
     num_enqueued: usize,
-    queue: BinaryHeap<(Reverse<f32>, Reverse<u32>, PropagatorId)>,
+    queue: BinaryHeap<AverageHeapEntry>,
+    propagator_means: KeyedVec<PropagatorId, f32>,
+    is_measured: KeyedVec<PropagatorId, bool>,
+    alpha: f32,
+    statistics: PropagatorPrioritiesStatistics,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AverageHeapEntry {
+    mean: f32,
+    base_priority: u32,
+    propagator_id: PropagatorId,
+}
+
+impl Eq for AverageHeapEntry {}
+
+impl PartialOrd for AverageHeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for AverageHeapEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.mean.total_cmp(&other.mean) {
+            std::cmp::Ordering::Less => std::cmp::Ordering::Greater,
+            std::cmp::Ordering::Greater => std::cmp::Ordering::Less,
+            std::cmp::Ordering::Equal => match self.base_priority.cmp(&other.base_priority) {
+                std::cmp::Ordering::Less => std::cmp::Ordering::Greater,
+                std::cmp::Ordering::Greater => std::cmp::Ordering::Less,
+                std::cmp::Ordering::Equal => {
+                    other.propagator_id.0.cmp(&self.propagator_id.0)
+                }
+            },
+        }
+    }
 }
 
 impl Default for AverageHeap {
     fn default() -> Self {
-        todo!()
+        Self {
+            is_enqueued: KeyedVec::default(),
+            num_enqueued: 0,
+            queue: BinaryHeap::new(),
+            propagator_means: KeyedVec::default(),
+            is_measured: KeyedVec::default(),
+            alpha: 0.2,
+            statistics: PropagatorPrioritiesStatistics::default(),
+        }
     }
 }
 
@@ -549,30 +594,76 @@ impl PropagatorQueue for AverageHeap {
         propagator_id: PropagatorId,
         priority: Priority,
     ) {
-        pumpkin_assert_moderate!((priority as usize) < self.queues.len());
         if !self.is_propagator_enqueued(propagator_id) {
             self.is_enqueued.accomodate(propagator_id, false);
             self.is_enqueued[propagator_id] = true;
             self.num_enqueued += 1;
 
-            self.queue.push();
+            self.propagator_means.accomodate(propagator_id, f32::MAX);
+            self.is_measured.accomodate(propagator_id, false);
+
+            let mean = if self.is_measured[propagator_id] {
+                self.propagator_means[propagator_id]
+            } else {
+                f32::MAX
+            };
+
+            self.queue.push(AverageHeapEntry {
+                mean,
+                base_priority: priority as u32,
+                propagator_id,
+            });
         }
     }
 
-    fn pop(&mut self) -> Option<PropagatorId>;
+    fn pop(&mut self) -> Option<PropagatorId> {
+        let next = self.queue.pop().map(|entry| entry.propagator_id);
 
-    fn clear(&mut self);
+        if let Some(propagator_id) = next {
+            self.is_enqueued[propagator_id] = false;
+            self.num_enqueued -= 1;
+        }
 
-    fn is_propagator_enqueued(&self, propagator_id: PropagatorId) -> bool;
+        next
+    }
+
+    fn clear(&mut self) {
+        self.queue.clear();
+        for is_propagator_enqueued in self.is_enqueued.iter_mut() {
+            *is_propagator_enqueued = false;
+        }
+        self.num_enqueued = 0;
+    }
+
+    fn is_propagator_enqueued(&self, propagator_id: PropagatorId) -> bool {
+        self.is_enqueued
+            .get(propagator_id)
+            .copied()
+            .unwrap_or_default()
+    }
 
     /// Alters the parameters used for calculating the dynamic priority of the propagator
     fn record_propagation_outcome(
         &mut self,
-        _propagator_id: PropagatorId,
-        _outcome: PropagationOutcome,
-    ) {}
+        propagator_id: PropagatorId,
+        outcome: PropagationOutcome,
+    ) {
 
-    fn log_statistics(&self) {}
+        let value = (outcome.total_removed_values as f32
+            + if outcome.found_conflict { 1000.0 } else { 0.0 })
+            / (outcome.time.as_micros() as f32 + 1.0);
+        self.propagator_means.accomodate(propagator_id, f32::MAX);
+        self.is_measured.accomodate(propagator_id, false);
+
+        if self.is_measured[propagator_id] {
+            let old_mean = self.propagator_means[propagator_id];
+            self.propagator_means[propagator_id] =
+                self.alpha * value + (1.0 - self.alpha) * old_mean;
+        } else {
+            self.propagator_means[propagator_id] = value;
+            self.is_measured[propagator_id] = true;
+        }
+    }
 }
 
 create_statistics_struct! {
