@@ -7,6 +7,7 @@ use crate::containers::KeyedVec;
 use crate::propagation::Priority;
 use crate::propagation::PropagatorId;
 use crate::pumpkin_assert_moderate;
+use crate::statistics::log_statistic;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
@@ -70,6 +71,9 @@ pub(crate) struct PropagatorQueue {
     pub(crate) propagator_utility_formula: PropagatorUtilityFormula,
     pub(crate) propagator_utility_decay: f32,
     pub(crate) propagator_utility_conflict_weight: f32,
+
+    pub(crate) previous_static_priority: KeyedVec<PropagatorId, (f32, Priority)>,
+    pub(crate) has_previous_static_priority: bool,
 }
 
 pub(crate) struct PropagationOutcome {
@@ -109,6 +113,8 @@ impl PropagatorQueue {
             propagator_utility_formula: PropagatorUtilityFormula::default(),
             propagator_utility_decay: 0.8,
             propagator_utility_conflict_weight: 1000.0,
+            has_previous_static_priority: false,
+            previous_static_priority: KeyedVec::default(),
         }
     }
 
@@ -127,6 +133,19 @@ impl PropagatorQueue {
                 }
             }
             self.last_priorities[propagator_id] = Some(priority);
+        }
+
+        if self.has_previous_static_priority {
+            self.is_enqueued.accomodate(propagator_id, false);
+            self.is_enqueued[propagator_id] = true;
+            self.num_enqueued += 1;
+
+            let (_, static_priority) = self.previous_static_priority[propagator_id];
+            if self.queues[static_priority as usize].is_empty() {
+                self.present_priorities.push(Reverse(static_priority as u32));
+            }
+            self.queues[static_priority as usize].push_back(propagator_id);
+            return
         }
 
         if !self.is_propagator_enqueued(propagator_id) {
@@ -172,6 +191,9 @@ impl PropagatorQueue {
 
     /// Alters the parameters used for calculating the dynamic priority of the propagator
     pub(crate) fn record_propagation_outcome(&mut self, propagator_id: PropagatorId, outcome: PropagationOutcome) {
+        if self.has_previous_static_priority {
+            return;
+        }
         self.propagator_utility.accomodate(propagator_id, 0.0);
         self.base_priorities.accomodate(propagator_id, None);
 
@@ -208,6 +230,9 @@ impl PropagatorQueue {
     }
 
     pub(crate) fn calculate_dynamic_priority(&mut self, propagator_id: PropagatorId, priority: Priority) -> Priority {
+        if self.has_previous_static_priority {
+            return self.previous_static_priority[propagator_id].1;
+        }
         self.propagator_utility.accomodate(propagator_id, 0.0);
         self.base_priorities.accomodate(propagator_id, None);
 
@@ -286,6 +311,15 @@ impl PropagatorQueue {
             .get(propagator_id)
             .copied()
             .unwrap_or_default()
+    }
+
+    pub(crate) fn log_statistics(&self) {
+        log_statistic("numberOfPropagators", self.propagator_utility.len());
+
+        for (p_id, value) in self.propagator_utility.iter().enumerate() {
+            let p_id = PropagatorId(p_id as u32);
+            log_statistic(p_id, value);
+        }
     }
 }
 

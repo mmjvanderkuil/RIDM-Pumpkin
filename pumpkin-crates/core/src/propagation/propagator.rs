@@ -254,3 +254,14 @@ impl From<f32> for Priority {
         }
     }
 }
+
+impl From<u8> for Priority {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Priority::High,
+            1 => Priority::Medium,
+            2 => Priority::Low,
+            _ => Priority::VeryLow,
+        }
+    }
+}

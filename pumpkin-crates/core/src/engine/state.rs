@@ -233,6 +233,8 @@ impl State {
             self.propagator_queue.num_priority_changes,
         );
 
+        self.propagator_queue.log_statistics();
+
         if true {
             log_statistic(
                 "numAtomicConstraintsPropagated",

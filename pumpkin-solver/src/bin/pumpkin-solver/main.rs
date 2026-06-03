@@ -26,6 +26,10 @@ use parsers::dimacs::SolverDimacsSink;
 use parsers::dimacs::parse_cnf;
 use pumpkin_conflict_resolvers::resolvers::NoLearningResolver;
 use pumpkin_conflict_resolvers::resolvers::ResolutionResolver;
+use pumpkin_core::containers::KeyedVec;
+use pumpkin_core::containers::StorageKey;
+use pumpkin_core::propagation::Priority;
+use pumpkin_core::state::PropagatorId;
 use pumpkin_propagators::cumulative::options::CumulativeOptions;
 use pumpkin_propagators::cumulative::options::CumulativePropagationMethod;
 use pumpkin_propagators::cumulative::time_table::CumulativeExplanationType;
@@ -416,6 +420,10 @@ struct Args {
     /// The conflict weight for the default propagator utility formula.
     #[arg(long = "propagator-utility-conflict-weight", default_value_t = 1000.0)]
     propagator_utility_conflict_weight: f32,
+
+    /// The priorities found by previous runs
+    #[arg(long)]
+    previous_propagator_utility: Option<PathBuf>,
 }
 
 fn configure_logging(
@@ -588,6 +596,13 @@ fn run() -> PumpkinResult<()> {
     } else {
         !args.no_learning_clause_minimisation
     };
+
+    let propagator_static_utility = if let Some(path_to_csv) = args.previous_propagator_utility {
+        csv_to_propagator_keyed_vec(path_to_csv)
+   } else {
+        KeyedVec::default()
+   };
+
     let solver_options = SolverOptions {
         // 1 MB is 1_000_000 bytes
         memory_preallocated: args.memory_preallocated,
@@ -607,6 +622,7 @@ fn run() -> PumpkinResult<()> {
         propagator_utility_formula: args.propagator_utility_formula,
         propagator_utility_decay: args.propagator_utility_decay,
         propagator_utility_conflict_weight: args.propagator_utility_conflict_weight,
+        propagator_static_utility: propagator_static_utility,
     };
 
     let time_limit = args.time_limit.map(Duration::from_millis);
@@ -807,4 +823,21 @@ enum ProofType {
     Scaffold,
     /// Log the full proof with hints.
     Full,
+}
+
+fn csv_to_propagator_keyed_vec(path_to_csv: PathBuf) -> KeyedVec<PropagatorId, (f32, Priority)> {
+    let mut reader = csv::Reader::from_path(path_to_csv).unwrap();
+    let records: Vec<csv::StringRecord> = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+
+    let mut keyed_vec = KeyedVec::default();
+    for r in records {
+        let id: usize = r[0].parse().unwrap();
+        let utility: f32 = r[1].parse().unwrap();
+        let priority = Priority::from(r[2].parse::<u8>().unwrap());
+        let p_id = PropagatorId::create_from_index(id);
+        keyed_vec.accomodate(p_id, (f32::MAX, Priority::VeryLow));
+        keyed_vec[p_id] = (utility, priority)
+    }
+
+    keyed_vec
 }

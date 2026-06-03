@@ -31,6 +31,7 @@ use crate::conflict_resolving::ConflictAnalysisContext;
 use crate::conflict_resolving::ConflictResolver;
 use crate::containers::HashMap;
 use crate::containers::HashSet;
+use crate::containers::KeyedVec;
 use crate::declare_inference_label;
 use crate::engine::Assignments;
 use crate::engine::RestartOptions;
@@ -46,6 +47,7 @@ use crate::proof::ProofLog;
 use crate::proof::RootExplanationContext;
 use crate::proof::explain_root_assignment;
 use crate::proof::finalize_proof;
+use crate::propagation::Priority;
 use crate::propagation::PropagatorConstructor;
 use crate::propagation::store::PropagatorHandle;
 use crate::propagators::nogoods::NogoodChecker;
@@ -56,6 +58,7 @@ use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_ne_moderate;
 use crate::pumpkin_assert_simple;
 use crate::state::CurrentNogood;
+use crate::state::PropagatorId;
 use crate::statistics::StatisticLogger;
 use crate::statistics::statistic_logging::should_log_statistics;
 use crate::variables::DomainId;
@@ -193,6 +196,7 @@ pub struct SatisfactionSolverOptions {
     pub propagator_utility_formula: PropagatorUtilityFormula,
     pub propagator_utility_decay: f32,
     pub propagator_utility_conflict_weight: f32,
+    pub propagator_static_utility: KeyedVec<PropagatorId, (f32, Priority)>
 }
 
 impl Default for SatisfactionSolverOptions {
@@ -209,6 +213,7 @@ impl Default for SatisfactionSolverOptions {
             propagator_utility_formula: PropagatorUtilityFormula::from_env().unwrap_or_default(),
             propagator_utility_decay: PropagatorUtilityFormula::get_decay(),
             propagator_utility_conflict_weight: PropagatorUtilityFormula::get_conflict_weight(),
+            propagator_static_utility: KeyedVec::default(),
         }
     }
 }
@@ -286,6 +291,10 @@ impl ConstraintSatisfactionSolver {
 impl ConstraintSatisfactionSolver {
     pub fn new(solver_options: SatisfactionSolverOptions) -> Self {
         let mut state = State::default();
+
+        state.propagator_queue.has_previous_static_priority = solver_options.propagator_static_utility.len() > 0;
+        state.propagator_queue.previous_static_priority = solver_options.propagator_static_utility.clone();
+
         state.propagator_queue.dynamic_priority_adaptation = solver_options.dynamic_priority_adaptation;
         state.propagator_queue.propagator_utility_formula = solver_options.propagator_utility_formula;
         state.propagator_queue.propagator_utility_decay = solver_options.propagator_utility_decay;
