@@ -8,6 +8,7 @@
 //  - Possibly the recursion could be unrolled
 use std::ops::AddAssign;
 use std::ops::DivAssign;
+use std::ops::SubAssign;
 
 use super::KeyedVec;
 use super::StorageKey;
@@ -57,7 +58,7 @@ impl<Key, Value> KeyValueHeap<Key, Value> {
 impl<Key, Value> KeyValueHeap<Key, Value>
 where
     Key: StorageKey + Copy,
-    Value: AddAssign<Value> + DivAssign<Value> + PartialOrd + Default + Copy,
+    Value: AddAssign<Value> + SubAssign<Value> + DivAssign<Value> + PartialOrd + Default + Copy,
 {
     /// Get the keys in the heap.
     ///
@@ -120,6 +121,20 @@ where
         // So we only apply sift up in case the key is present
         if self.is_key_present(key) {
             self.sift_up(position);
+        }
+    }
+
+    /// Decrements the value of the element of `key` by `decrement`.
+    ///
+    /// The worst-case time-complexity of this operation is O(logn); average case is likely to be
+    /// better.
+    pub fn decrement(&mut self, key: Key, decrement: Value) {
+        let position = self.map_key_to_position[key];
+        self.values[position] -= decrement;
+        // Recall that decrement may be applied to keys not present.
+        // So we only apply sift down in case the key is present.
+        if self.is_key_present(key) {
+            self.sift_down(position);
         }
     }
 
