@@ -4,6 +4,7 @@ use crate::branching::Brancher;
 use crate::branching::BrancherEvent;
 use crate::branching::SelectionContext;
 use crate::branching::value_selection::InDomainMiddle;
+use crate::branching::value_selection::InDomainSplit;
 use crate::branching::value_selection::ValueSelector;
 use crate::branching::branchers::independent_variable_value_brancher::IndependentVariableValueBrancher;
 use crate::branching::value_selection::InDomainMin;
@@ -27,7 +28,7 @@ pub struct VariableActivitySearch<BackupBrancher> {
     // Backup brancher for when we can not make a decision
     backup_brancher: BackupBrancher,
     /// Selects the branch value once the variable has been chosen.
-    value_selector: InDomainMiddle,
+    value_selector: InDomainSplit,
     /// How much the activity of a variable is increased when it appears in a conflict.
     /// This value changes during search.
     increment: f64,
@@ -62,7 +63,7 @@ impl DefaultBrancher {
                 InDomainMin,
             ),
             dormant_variables: vec![],
-            value_selector: InDomainMiddle,
+            value_selector: InDomainSplit,
             increment: DEFAULT_INCREMENT,
             decay_factor: DEFAULT_DECAY_FACTOR,
             max_threshold: DEFAULT_MAX_THRESHOLD,
@@ -81,7 +82,7 @@ impl<BackupBrancher> VariableActivitySearch<BackupBrancher> {
         VariableActivitySearch {
             backup_brancher,
             dormant_variables: vec![],
-            value_selector: InDomainMiddle,
+            value_selector: InDomainSplit,
             increment: DEFAULT_INCREMENT,
             decay_factor: DEFAULT_DECAY_FACTOR,
             max_threshold: DEFAULT_MAX_THRESHOLD,
