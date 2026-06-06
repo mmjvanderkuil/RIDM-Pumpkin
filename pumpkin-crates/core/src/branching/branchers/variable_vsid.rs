@@ -108,6 +108,7 @@ create_statistics_struct!(VariableVsidBrancherStatistics {
     num_predicates_added: usize,
     average_size_of_heap: CumulativeMovingAverage<usize>,
     num_assigned_predicates_encountered: usize,
+    num_decisions_different_from_regular_vsid: usize,
 });
 
 const DEFAULT_VSIDS_INCREMENT: f64 = 1.0;
@@ -307,6 +308,35 @@ impl<BackupBrancher> VariableVsidBrancher<BackupBrancher> {
             predicate
         }
     }
+
+    fn global_highest_unassigned_predicate_activity(
+        &self,
+        context: &SelectionContext,
+    ) -> Option<f64> {
+        self.predicate_heap
+            .iter()
+            .flat_map(|(variable_id, heap)| {
+                heap.keys().filter_map(|predicate_id| {
+                    let predicate = self.predicate_id_info.get_predicate(predicate_id)?;
+                    if predicate.get_domain() != *variable_id || context.is_predicate_assigned(predicate)
+                    {
+                        return None;
+                    }
+                    Some(*heap.get_value(predicate_id))
+                })
+            })
+            .max_by(|left, right| left.total_cmp(right))
+    }
+
+    fn predicate_activity(&self, predicate: Predicate) -> Option<f64> {
+        let variable_id = predicate.get_domain();
+        let predicate_id = self
+            .predicate_heap
+            .get(&variable_id)?
+            .keys()
+            .find(|predicate_id| self.predicate_id_info.get_predicate(*predicate_id) == Some(predicate))?;
+        Some(*self.predicate_heap.get(&variable_id)?.get_value(predicate_id))
+    }
     
     fn synchronise_internal(&mut self) {
         // We drain the dormant variables and add them back to the variable heap. For each such
@@ -337,9 +367,18 @@ impl<BackupBrancher: Brancher> Brancher for VariableVsidBrancher<BackupBrancher>
         self.statistics
             .average_size_of_heap
             .add_term(self.variable_heap.num_nonremoved_elements());
-        let result = self
-            .next_candidate_predicate(context)
-            .map(|predicate| self.determine_polarity(predicate));
+        let result = self.next_candidate_predicate(context).map(|predicate| {
+            if let (Some(selected_activity), Some(global_highest_activity)) = (
+                self.predicate_activity(predicate),
+                self.global_highest_unassigned_predicate_activity(context),
+            ) {
+                if selected_activity < global_highest_activity {
+                    self.statistics.num_decisions_different_from_regular_vsid += 1;
+                }
+            }
+
+            self.determine_polarity(predicate)
+        });
         if result.is_none() && !context.are_all_variables_assigned() {
             // There are variables for which we do not have a predicate, rely on the backup
             self.statistics.num_backup_called += 1;
@@ -351,7 +390,16 @@ impl<BackupBrancher: Brancher> Brancher for VariableVsidBrancher<BackupBrancher>
 
     fn log_statistics(&self, statistic_logger: StatisticLogger) {
         let statistic_logger = statistic_logger.attach_to_prefix("AutonomousSearch");
-        self.statistics.log(statistic_logger);
+        self.statistics.log(statistic_logger.clone());
+        let ratio_different_from_regular_vsid = if self.statistics.num_calls == 0 {
+            0.0
+        } else {
+            self.statistics.num_decisions_different_from_regular_vsid as f64
+                / self.statistics.num_calls as f64
+        };
+        statistic_logger
+            .attach_to_prefix("ratio_decisions_different_from_regular_vsid")
+            .log_statistic(ratio_different_from_regular_vsid);
     }
 
     fn on_backtrack(&mut self) {
@@ -438,6 +486,37 @@ mod tests {
         ));
 
         assert_eq!(result, Some(predicate!(x >= 7)));
+    }
+
+    #[test]
+    fn increments_stat_when_decision_differs_from_regular_vsid() {
+        let mut assignments = Assignments::default();
+        let x = assignments.grow(0, 10);
+        let y = assignments.grow(0, 10);
+
+        let mut brancher = VariableVsidBrancher::default_over_all_variables(&assignments);
+
+        // x has the highest total variable activity.
+        brancher.on_appearance_in_conflict_predicate(predicate!(x >= 4));
+        brancher.on_appearance_in_conflict_predicate(predicate!(x >= 7));
+        brancher.on_appearance_in_conflict_predicate(predicate!(x >= 7));
+
+        // y has the globally highest predicate activity.
+        brancher.on_appearance_in_conflict_predicate(predicate!(y >= 5));
+        brancher.on_appearance_in_conflict_predicate(predicate!(y >= 5));
+        brancher.on_appearance_in_conflict_predicate(predicate!(y >= 5));
+
+        let _ = brancher.next_decision(&mut SelectionContext::new(
+            &assignments,
+            &mut TestRandom::default(),
+        ));
+
+        assert_eq!(
+            brancher
+                .statistics
+                .num_decisions_different_from_regular_vsid,
+            1
+        );
     }
 
     #[test]
