@@ -200,7 +200,7 @@ impl Default for State {
 }
 
 impl State {
-    pub(crate) fn log_statistics(&self, _verbose: bool) {
+    pub(crate) fn log_statistics(&mut self, _verbose: bool) {
         log_statistic("variables", self.assignments.num_domains());
         log_statistic("propagators", self.propagators.num_propagators());
         log_statistic("failures", self.statistics.num_conflicts);
@@ -232,6 +232,20 @@ impl State {
             "numPriorityChanges",
             self.propagator_queue.num_priority_changes,
         );
+
+        let mut priority_values = [0; 4];
+        for id in 0..self.propagators.num_propagators() {
+            let prop_id = PropagatorId(id as u32);
+            let prop = &self.propagators[prop_id];
+            let base_priority = prop.priority();
+            let dyn_priority = self.propagator_queue.calculate_dynamic_priority(prop_id, base_priority);
+            priority_values[dyn_priority as usize] += 1;
+        }
+
+        log_statistic("highPriorityPropagators", priority_values[0]);
+        log_statistic("medPriorityPropagators", priority_values[1]);
+        log_statistic("lowPriorityPropagators", priority_values[2]);
+        log_statistic("veryLowPriorityPropagators", priority_values[3]);
 
         if true {
             log_statistic(

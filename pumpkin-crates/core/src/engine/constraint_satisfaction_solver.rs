@@ -358,7 +358,17 @@ impl ConstraintSatisfactionSolver {
 
         self.solver_statistics
             .log(StatisticLogger::default(), verbose);
-        self.state.log_statistics(verbose);
+        let state = &self.state;
+
+        let state = unsafe {
+            state as *const State as *mut State
+        };
+
+        #[allow(invalid_reference_casting)]
+        let state: &mut State = unsafe {
+            &mut *state
+        };
+        state.log_statistics(verbose);
     }
 
     /// Create a new [`ConstraintTag`].
