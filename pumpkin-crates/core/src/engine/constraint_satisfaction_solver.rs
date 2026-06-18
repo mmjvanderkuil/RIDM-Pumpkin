@@ -4,7 +4,7 @@ use std::cmp::max;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::Arc;
-
+// use log::info;
 #[allow(
     clippy::disallowed_types,
     reason = "any rand generator is a valid implementation of Random"
@@ -241,7 +241,7 @@ impl ConstraintSatisfactionSolver {
                 unreachable!()
             }
 
-            fn on_learned_nogood(&mut self, _learned_nogood: &LearnedNogood, state: &mut State) {}
+            fn on_learned_nogood(&mut self, _learned_nogood: &LearnedNogood, _state: &mut State) {}
         }
 
         let mut conflict_analysis_context = ConflictAnalysisContext {
@@ -650,6 +650,7 @@ impl ConstraintSatisfactionSolver {
         );
 
         self.solver_statistics.engine_statistics.num_decisions += 1;
+        // info!("Solver decisions: {}", self.solver_statistics.engine_statistics.num_decisions);
         let update_occurred = self
             .state
             .post(decision_predicate)
@@ -902,10 +903,7 @@ impl ConstraintSatisfactionSolver {
     }
 
     pub fn post_predicate(&mut self, predicate: Predicate) -> Result<(), ConstraintOperationError> {
-        assert!(
-            self.get_checkpoint() == 0,
-            "Can only post predicates at the root level."
-        );
+        assert_eq!(self.get_checkpoint(), 0, "Can only post predicates at the root level.");
 
         if self.solver_state.is_infeasible() {
             Err(ConstraintOperationError::InfeasibleState)

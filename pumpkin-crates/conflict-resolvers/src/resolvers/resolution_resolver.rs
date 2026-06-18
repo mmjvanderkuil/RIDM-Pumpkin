@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use log::info;
+// use log::info;
 use pumpkin_core::asserts::pumpkin_assert_advanced;
 use pumpkin_core::asserts::pumpkin_assert_moderate;
 use pumpkin_core::asserts::pumpkin_assert_simple;
@@ -518,17 +518,17 @@ impl ResolutionResolver {
             }
             AnalysisMode::OneUIP | AnalysisMode::AllDecision | AnalysisMode::HalfExtendedUIP => {}
         }
-        info!(
-            "Adding nogood of length {} with {} predicates from the current decision level",
-            self.processed_nogood_predicates.len(),
-            self.processed_nogood_predicates
-                .iter()
-                .filter(
-                    |predicate| context.get_checkpoint_for_predicate(**predicate).unwrap()
-                        == context.get_checkpoint()
-                )
-                .count(),
-        );
+        // info!(
+        //     "Adding nogood of length {} with {} predicates from the current decision level",
+        //     self.processed_nogood_predicates.len(),
+        //     self.processed_nogood_predicates
+        //         .iter()
+        //         .filter(
+        //             |predicate| context.get_checkpoint_for_predicate(**predicate).unwrap()
+        //                 == context.get_checkpoint()
+        //         )
+        //         .count(),
+        // );
 
         pumpkin_assert_advanced!(
             self.processed_nogood_predicates

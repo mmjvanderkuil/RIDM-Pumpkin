@@ -219,6 +219,13 @@ where
         }
     }
 
+
+    /// Set the value of a specific key
+    /// WARNING: KEY MUST BE PRESENT IN THE HEAP
+    pub fn set_value(&mut self, key: Key, value: Value) {
+        self.values[self.map_key_to_position[key]] = value;
+    }
+
     fn swap_positions(&mut self, a: usize, b: usize) {
         let key_i = self.map_position_to_key[a];
         pumpkin_assert_moderate!(self.map_key_to_position[key_i] == a);

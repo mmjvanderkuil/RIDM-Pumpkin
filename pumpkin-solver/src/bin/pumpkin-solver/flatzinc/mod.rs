@@ -10,11 +10,6 @@ use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::Duration;
 use std::time::Instant;
-
-use pumpkin_core::branching::branchers::alternating::AlternatingBrancher;
-use pumpkin_core::branching::branchers::alternating::every_x_restarts::EveryXRestarts;
-use pumpkin_core::branching::branchers::alternating::until_solution::UntilSolution;
-use pumpkin_core::branching::branchers::custom_search::CustomSearch;
 use pumpkin_core::conflict_resolving::ConflictResolver;
 use pumpkin_core::statistics::log_statistic;
 use pumpkin_propagators::cumulative::options::CumulativeOptions;
@@ -168,7 +163,7 @@ pub(crate) fn solve<R: ConflictResolver>(
     // };
 
     let mut brancher = DynamicBrancher::new(vec![Box::new(
-        CustomSearch::new(solver.default_brancher())
+        solver.default_brancher()
     )]);
 
     let (direction, objective): (OptimisationDirection, DomainId) =

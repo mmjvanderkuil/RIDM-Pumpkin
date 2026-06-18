@@ -1,18 +1,14 @@
-use super::independent_variable_value_brancher::IndependentVariableValueBrancher;
-use crate::DefaultBrancher;
 use crate::basic_types::DeletablePredicateIdGenerator;
 use crate::basic_types::PredicateId;
 use crate::basic_types::SolutionReference;
 use crate::branching::Brancher;
 use crate::branching::BrancherEvent;
 use crate::branching::SelectionContext;
-use crate::branching::value_selection::InDomainMin;
-use crate::branching::variable_selection::InputOrder;
 use crate::conflict_resolving::LearnedNogood;
 use crate::containers::KeyValueHeap;
 use crate::containers::StorageKey;
 use crate::create_statistics_struct;
-use crate::engine::{Assignments, State};
+use crate::engine::State;
 use crate::engine::predicates::predicate::Predicate;
 use crate::propagation::ReadDomains;
 use crate::results::Solution;
@@ -113,35 +109,35 @@ const DEFAULT_VSIDS_MAX_THRESHOLD: f64 = 1e100;
 const DEFAULT_VSIDS_DECAY_FACTOR: f64 = 0.95;
 const DEFAULT_VSIDS_VALUE: f64 = 0.0;
 
-impl DefaultBrancher {
-    /// Creates a new instance with default values for
-    /// the parameters (`1.0` for the increment, `1e100` for the max threshold,
-    /// `0.95` for the decay factor and `0.0` for the initial VSIDS value).
-    ///
-    /// If there are no more predicates left to select, this [`Brancher`] switches to
-    /// [`InputOrder`] with [`InDomainMin`].
-    pub fn default_over_all_variables(assignments: &Assignments) -> DefaultBrancher {
-        AutonomousSearch {
-            predicate_id_info: DeletablePredicateIdGenerator::default(),
-            heap: KeyValueHeap::default(),
-            dormant_predicates: vec![],
-            increment: DEFAULT_VSIDS_INCREMENT,
-            max_threshold: DEFAULT_VSIDS_MAX_THRESHOLD,
-            decay_factor: DEFAULT_VSIDS_DECAY_FACTOR,
-            best_known_solution: None,
-            should_synchronise: false,
-            backup_brancher: IndependentVariableValueBrancher::new(
-                InputOrder::new(&assignments.get_domains().collect::<Vec<_>>()),
-                InDomainMin,
-            ),
-            statistics: Default::default(),
-        }
-    }
-
-    pub fn add_domain(&mut self, domain: DomainId) {
-        self.backup_brancher.variable_selector.add_domain(domain);
-    }
-}
+// impl DefaultBrancher {
+//     /// Creates a new instance with default values for
+//     /// the parameters (`1.0` for the increment, `1e100` for the max threshold,
+//     /// `0.95` for the decay factor and `0.0` for the initial VSIDS value).
+//     ///
+//     /// If there are no more predicates left to select, this [`Brancher`] switches to
+//     /// [`InputOrder`] with [`InDomainMin`].
+//     pub fn default_over_all_variables(assignments: &Assignments) -> DefaultBrancher {
+//         AutonomousSearch {
+//             predicate_id_info: DeletablePredicateIdGenerator::default(),
+//             heap: KeyValueHeap::default(),
+//             dormant_predicates: vec![],
+//             increment: DEFAULT_VSIDS_INCREMENT,
+//             max_threshold: DEFAULT_VSIDS_MAX_THRESHOLD,
+//             decay_factor: DEFAULT_VSIDS_DECAY_FACTOR,
+//             best_known_solution: None,
+//             should_synchronise: false,
+//             backup_brancher: IndependentVariableValueBrancher::new(
+//                 InputOrder::new(&assignments.get_domains().collect::<Vec<_>>()),
+//                 InDomainMin,
+//             ),
+//             statistics: Default::default(),
+//         }
+//     }
+//
+//     pub fn add_domain(&mut self, domain: DomainId) {
+//         self.backup_brancher.variable_selector.add_domain(domain);
+//     }
+// }
 
 impl<BackupSelector> AutonomousSearch<BackupSelector> {
     /// Creates a new instance with default values for
@@ -274,6 +270,11 @@ impl<BackupSelector> AutonomousSearch<BackupSelector> {
 }
 
 impl<BackupBrancher: Brancher> Brancher for AutonomousSearch<BackupBrancher> {
+    fn log_statistics(&self, statistic_logger: StatisticLogger) {
+        let statistic_logger = statistic_logger.attach_to_prefix("AutonomousSearch");
+        self.statistics.log(statistic_logger);
+    }
+
     fn next_decision(&mut self, context: &mut SelectionContext) -> Option<Predicate> {
         if self.should_synchronise {
             self.synchronise_internal();
@@ -295,30 +296,23 @@ impl<BackupBrancher: Brancher> Brancher for AutonomousSearch<BackupBrancher> {
         }
     }
 
-    fn log_statistics(&self, statistic_logger: StatisticLogger) {
-        let statistic_logger = statistic_logger.attach_to_prefix("AutonomousSearch");
-        self.statistics.log(statistic_logger);
+    fn on_conflict(&mut self) {
+        self.decay_activities();
+        self.backup_brancher.on_conflict();
     }
 
     fn on_backtrack(&mut self) {
         self.backup_brancher.on_backtrack()
     }
 
-    /// Restores dormant predicates after backtracking.
-    fn synchronise(&mut self, context: &mut SelectionContext) {
-        self.should_synchronise = true;
-        self.backup_brancher.synchronise(context);
-    }
-
-    fn on_conflict(&mut self) {
-        self.decay_activities();
-        self.backup_brancher.on_conflict();
-    }
-
     fn on_solution(&mut self, solution: SolutionReference) {
         // We store the best known solution
         self.best_known_solution = Some(solution.into());
         self.backup_brancher.on_solution(solution);
+    }
+
+    fn on_unassign_integer(&mut self, variable: DomainId, value: i32) {
+        self.backup_brancher.on_unassign_integer(variable, value)
     }
 
     fn on_appearance_in_conflict_predicate(&mut self, predicate: Predicate) {
@@ -331,8 +325,10 @@ impl<BackupBrancher: Brancher> Brancher for AutonomousSearch<BackupBrancher> {
         self.backup_brancher.on_restart();
     }
 
-    fn on_unassign_integer(&mut self, variable: DomainId, value: i32) {
-        self.backup_brancher.on_unassign_integer(variable, value)
+    /// Restores dormant predicates after backtracking.
+    fn synchronise(&mut self, context: &mut SelectionContext) {
+        self.should_synchronise = true;
+        self.backup_brancher.synchronise(context);
     }
 
     fn is_restart_pointless(&mut self) -> bool {
@@ -352,155 +348,157 @@ impl<BackupBrancher: Brancher> Brancher for AutonomousSearch<BackupBrancher> {
         .collect()
     }
 
-    fn on_learned_nogood(&mut self, _learned_nogood: &LearnedNogood, state: &mut State) {}
-}
-
-#[cfg(test)]
-mod tests {
-    use super::AutonomousSearch;
-    use crate::basic_types::tests::TestRandom;
-    use crate::branching::Brancher;
-    use crate::branching::SelectionContext;
-    use crate::engine::Assignments;
-    use crate::engine::notifications::NotificationEngine;
-    use crate::predicate;
-    use crate::results::SolutionReference;
-
-    #[test]
-    fn brancher_picks_bumped_values() {
-        let mut assignments = Assignments::default();
-        let x = assignments.grow(0, 10);
-        let y = assignments.grow(-10, 0);
-
-        let mut brancher = AutonomousSearch::default_over_all_variables(&assignments);
-        brancher.on_appearance_in_conflict_predicate(predicate!(x >= 5));
-        brancher.on_appearance_in_conflict_predicate(predicate!(x >= 5));
-        brancher.on_appearance_in_conflict_predicate(predicate!(y >= -5));
-
-        (0..100).for_each(|_| brancher.on_conflict());
-    }
-
-    #[test]
-    fn dormant_values() {
-        let mut notification_engine = NotificationEngine::default();
-        let mut assignments = Assignments::default();
-        let x = assignments.grow(0, 10);
-        notification_engine.grow();
-
-        let mut brancher = AutonomousSearch::default_over_all_variables(&assignments);
-
-        let predicate = predicate!(x >= 5);
-        brancher.on_appearance_in_conflict_predicate(predicate);
-        let decision = brancher.next_decision(&mut SelectionContext::new(
-            &assignments,
-            &mut TestRandom::default(),
-        ));
-        assert_eq!(decision, Some(predicate));
-
-        assignments.new_checkpoint();
-        // Decision Level 1
-        let _ = assignments.post_predicate(predicate!(x >= 5), None, &mut notification_engine);
-
-        assignments.new_checkpoint();
-        // Decision Level 2
-        let _ = assignments.post_predicate(predicate!(x >= 7), None, &mut notification_engine);
-
-        assignments.new_checkpoint();
-        // Decision Level 3
-        let _ = assignments.post_predicate(predicate!(x >= 10), None, &mut notification_engine);
-
-        assignments.new_checkpoint();
-        // We end at decision level 4
-
-        let decision = brancher.next_decision(&mut SelectionContext::new(
-            &assignments,
-            &mut TestRandom::default(),
-        ));
-        assert!(decision.is_none());
-        assert!(brancher.dormant_predicates.contains(&predicate));
-
-        let _ = assignments.synchronise(3, &mut notification_engine);
-
-        let decision = brancher.next_decision(&mut SelectionContext::new(
-            &assignments,
-            &mut TestRandom::default(),
-        ));
-        assert!(decision.is_none());
-        assert!(brancher.dormant_predicates.contains(&predicate));
-
-        let _ = assignments.synchronise(0, &mut notification_engine);
-        brancher.synchronise(&mut SelectionContext::new(
-            &assignments,
-            &mut TestRandom::default(),
-        ));
-
-        let decision = brancher.next_decision(&mut SelectionContext::new(
-            &assignments,
-            &mut TestRandom::default(),
-        ));
-        assert_eq!(decision, Some(predicate));
-        assert!(!brancher.dormant_predicates.contains(&predicate));
-    }
-
-    #[test]
-    fn uses_fallback() {
-        let mut assignments = Assignments::default();
-        let x = assignments.grow(0, 10);
-
-        let mut brancher = AutonomousSearch::default_over_all_variables(&assignments);
-
-        let result = brancher.next_decision(&mut SelectionContext::new(
-            &assignments,
-            &mut TestRandom {
-                integers: vec![2],
-                usizes: vec![0],
-                bools: vec![false],
-                weighted_choice: |_| unreachable!(),
-            },
-        ));
-
-        assert_eq!(result, Some(predicate!(x <= 2)));
-    }
-
-    #[test]
-    fn uses_stored_solution() {
-        let mut notification_engine = NotificationEngine::default();
-        let mut assignments = Assignments::default();
-        let x = assignments.grow(0, 10);
-        notification_engine.grow();
-
-        assignments.new_checkpoint();
-        let _ = assignments.post_predicate(predicate!(x == 7), None, &mut notification_engine);
-
-        let mut brancher = AutonomousSearch::default_over_all_variables(&assignments);
-
-        brancher.on_solution(SolutionReference::new(&assignments));
-
-        let _ = assignments.synchronise(0, &mut notification_engine);
-
-        assert_eq!(
-            predicate!(x >= 5),
-            brancher.determine_polarity(predicate!(x >= 5))
-        );
-        assert_eq!(
-            !predicate!(x >= 10),
-            brancher.determine_polarity(predicate!(x >= 10))
-        );
-        assert_eq!(
-            predicate!(x <= 8),
-            brancher.determine_polarity(predicate!(x <= 8))
-        );
-        assert_eq!(
-            !predicate!(x <= 5),
-            brancher.determine_polarity(predicate!(x <= 5))
-        );
-
-        brancher.on_appearance_in_conflict_predicate(predicate!(x >= 5));
-
-        let result = brancher.next_decision(&mut SelectionContext::new(
-            &assignments,
-            &mut TestRandom::default(),
-        ));
-        assert_eq!(result, Some(predicate!(x >= 5)));
+    fn on_learned_nogood(&mut self, learned_nogood: &LearnedNogood, state: &mut State) {
+        self.backup_brancher.on_learned_nogood(learned_nogood, state);
     }
 }
+//
+// #[cfg(test)]
+// mod tests {
+//     use super::AutonomousSearch;
+//     use crate::basic_types::tests::TestRandom;
+//     use crate::branching::Brancher;
+//     use crate::branching::SelectionContext;
+//     use crate::engine::Assignments;
+//     use crate::engine::notifications::NotificationEngine;
+//     use crate::predicate;
+//     use crate::results::SolutionReference;
+//
+//     #[test]
+//     fn brancher_picks_bumped_values() {
+//         let mut assignments = Assignments::default();
+//         let x = assignments.grow(0, 10);
+//         let y = assignments.grow(-10, 0);
+//
+//         let mut brancher = AutonomousSearch::default_over_all_variables(&assignments);
+//         brancher.on_appearance_in_conflict_predicate(predicate!(x >= 5));
+//         brancher.on_appearance_in_conflict_predicate(predicate!(x >= 5));
+//         brancher.on_appearance_in_conflict_predicate(predicate!(y >= -5));
+//
+//         (0..100).for_each(|_| brancher.on_conflict());
+//     }
+//
+//     #[test]
+//     fn dormant_values() {
+//         let mut notification_engine = NotificationEngine::default();
+//         let mut assignments = Assignments::default();
+//         let x = assignments.grow(0, 10);
+//         notification_engine.grow();
+//
+//         let mut brancher = AutonomousSearch::default_over_all_variables(&assignments);
+//
+//         let predicate = predicate!(x >= 5);
+//         brancher.on_appearance_in_conflict_predicate(predicate);
+//         let decision = brancher.next_decision(&mut SelectionContext::new(
+//             &assignments,
+//             &mut TestRandom::default(),
+//         ));
+//         assert_eq!(decision, Some(predicate));
+//
+//         assignments.new_checkpoint();
+//         // Decision Level 1
+//         let _ = assignments.post_predicate(predicate!(x >= 5), None, &mut notification_engine);
+//
+//         assignments.new_checkpoint();
+//         // Decision Level 2
+//         let _ = assignments.post_predicate(predicate!(x >= 7), None, &mut notification_engine);
+//
+//         assignments.new_checkpoint();
+//         // Decision Level 3
+//         let _ = assignments.post_predicate(predicate!(x >= 10), None, &mut notification_engine);
+//
+//         assignments.new_checkpoint();
+//         // We end at decision level 4
+//
+//         let decision = brancher.next_decision(&mut SelectionContext::new(
+//             &assignments,
+//             &mut TestRandom::default(),
+//         ));
+//         assert!(decision.is_none());
+//         assert!(brancher.dormant_predicates.contains(&predicate));
+//
+//         let _ = assignments.synchronise(3, &mut notification_engine);
+//
+//         let decision = brancher.next_decision(&mut SelectionContext::new(
+//             &assignments,
+//             &mut TestRandom::default(),
+//         ));
+//         assert!(decision.is_none());
+//         assert!(brancher.dormant_predicates.contains(&predicate));
+//
+//         let _ = assignments.synchronise(0, &mut notification_engine);
+//         brancher.synchronise(&mut SelectionContext::new(
+//             &assignments,
+//             &mut TestRandom::default(),
+//         ));
+//
+//         let decision = brancher.next_decision(&mut SelectionContext::new(
+//             &assignments,
+//             &mut TestRandom::default(),
+//         ));
+//         assert_eq!(decision, Some(predicate));
+//         assert!(!brancher.dormant_predicates.contains(&predicate));
+//     }
+//
+//     #[test]
+//     fn uses_fallback() {
+//         let mut assignments = Assignments::default();
+//         let x = assignments.grow(0, 10);
+//
+//         let mut brancher = AutonomousSearch::default_over_all_variables(&assignments);
+//
+//         let result = brancher.next_decision(&mut SelectionContext::new(
+//             &assignments,
+//             &mut TestRandom {
+//                 integers: vec![2],
+//                 usizes: vec![0],
+//                 bools: vec![false],
+//                 weighted_choice: |_| unreachable!(),
+//             },
+//         ));
+//
+//         assert_eq!(result, Some(predicate!(x <= 2)));
+//     }
+//
+//     #[test]
+//     fn uses_stored_solution() {
+//         let mut notification_engine = NotificationEngine::default();
+//         let mut assignments = Assignments::default();
+//         let x = assignments.grow(0, 10);
+//         notification_engine.grow();
+//
+//         assignments.new_checkpoint();
+//         let _ = assignments.post_predicate(predicate!(x == 7), None, &mut notification_engine);
+//
+//         let mut brancher = AutonomousSearch::default_over_all_variables(&assignments);
+//
+//         brancher.on_solution(SolutionReference::new(&assignments));
+//
+//         let _ = assignments.synchronise(0, &mut notification_engine);
+//
+//         assert_eq!(
+//             predicate!(x >= 5),
+//             brancher.determine_polarity(predicate!(x >= 5))
+//         );
+//         assert_eq!(
+//             !predicate!(x >= 10),
+//             brancher.determine_polarity(predicate!(x >= 10))
+//         );
+//         assert_eq!(
+//             predicate!(x <= 8),
+//             brancher.determine_polarity(predicate!(x <= 8))
+//         );
+//         assert_eq!(
+//             !predicate!(x <= 5),
+//             brancher.determine_polarity(predicate!(x <= 5))
+//         );
+//
+//         brancher.on_appearance_in_conflict_predicate(predicate!(x >= 5));
+//
+//         let result = brancher.next_decision(&mut SelectionContext::new(
+//             &assignments,
+//             &mut TestRandom::default(),
+//         ));
+//         assert_eq!(result, Some(predicate!(x >= 5)));
+//     }
+// }

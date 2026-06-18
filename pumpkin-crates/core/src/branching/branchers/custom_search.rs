@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use num::abs;
 use num::integer::div_floor;
 use pumpkin_checking::CheckerVariable;
@@ -12,7 +11,6 @@ use crate::containers::StorageKey;
 use crate::create_statistics_struct;
 use crate::engine::predicates::predicate::Predicate;
 use crate::predicates::PredicateType;
-use crate::propagation::ReadDomains;
 use crate::results::Solution;
 use crate::state::State;
 use crate::statistics::Statistic;
@@ -28,6 +26,41 @@ struct DomainValueId  {
     id: DomainId,
     value: i32,
 }
+
+
+// 
+// impl DefaultBrancher {
+//     /// Creates a new instance with default values for
+//     /// the parameters (`1.0` for the increment, `1e100` for the max threshold,
+//     /// `0.95` for the decay factor and `0.0` for the initial VSIDS value).
+//     ///
+//     /// If there are no more predicates left to select, this [`Brancher`] switches to
+//     /// [`InputOrder`] with [`InDomainMin`].
+//     pub fn default_over_all_variables(assignments: &Assignments) -> DefaultBrancher {
+//         CustomSearch {
+//             // dormant_predicates: vec![],
+//             increment: DEFAULT_INCREMENT,
+//             max_threshold: DEFAULT_MAX_THRESHOLD,
+//             decay_factor: DEFAULT_GAMMA,
+//             best_known_solution: None,
+//             // should_synchronise: false,
+//             backup_brancher: IndependentVariableValueBrancher::new(
+//                 InputOrder::new(&assignments.get_domains().collect::<Vec<_>>()),
+//                 InDomainMin,
+//             ),
+//             heap_eq: Default::default(),
+//             heap_lt: Default::default(),
+//             heap_gt: Default::default(),
+//             statistics: Default::default(),
+//             heap_ne: Default::default(),
+//             dormant_predicates: Default::default(),
+//         }
+//     }
+// 
+//     pub fn add_domain(&mut self, domain: DomainId) {
+//         self.backup_brancher.variable_selector.add_domain(domain);
+//     }
+// }
 
 impl StorageKey for DomainValueId {
     fn index(&self) -> usize {
@@ -98,7 +131,7 @@ create_statistics_struct!(CustomSearchStatistics {
 });
 
 const DEFAULT_INCREMENT: f64 = 1.0;
-const DEFAULT_VALUE: f64 = 0.0;
+// const DEFAULT_VALUE: f64 = 0.0;
 const DEFAULT_GAMMA: f64 = 0.9;
 const DEFAULT_MAX_THRESHOLD: f64 = 1e100;
 
@@ -297,9 +330,9 @@ impl<BackupSelector> CustomSearch<BackupSelector> {
     /// [`Vsids::bump_activity`]) is more impactful.
     ///
     /// Doing it in this manner is cheaper than dividing each activity value eagerly.
-    fn decay_activities(&mut self) {
-        self.increment *= 1.0 / self.decay_factor;
-    }
+    // fn decay_activities(&mut self) {
+    //     self.increment *= 1.0 / self.decay_factor;
+    // }
 
     fn next_candidate_predicate(&mut self, context: &mut SelectionContext) -> Option<Predicate> {
         // Loop until we find an allowed predicate
@@ -431,7 +464,7 @@ impl<BackupBrancher: Brancher> Brancher for CustomSearch<BackupBrancher> {
 
     fn log_statistics(&self, statistic_logger: StatisticLogger) {
         // Implement logging of statistics if needed.
-        let statistic_logger = statistic_logger.attach_to_prefix("CustomBrancher");
+        let statistic_logger = statistic_logger;
         self.statistics.log(statistic_logger);
         // self.backup_brancher.log(statistic_logger);
     }
