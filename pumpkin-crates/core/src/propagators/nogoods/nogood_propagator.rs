@@ -1188,7 +1188,7 @@ impl NogoodPropagator {
 
         match self.analysis_mode {
             AnalysisMode::ExtendedUIP | AnalysisMode::BoundsExtendedUIP => {
-                info!("Adding nogood: {nogood:?}");
+                // info!("Adding nogood: {nogood:?}");
 
                 // We maintain the invariant that the first two predicates in a learned clause
                 // point to different variables; if this does not hold, then it is a "unit" nogood

@@ -42,6 +42,7 @@ use crate::results::unsatisfiable::UnsatisfiableUnderAssumptions;
 use crate::statistics::StatisticLogger;
 use crate::statistics::log_statistic;
 use crate::statistics::log_statistic_postfix;
+use crate::statistics::should_log_statistics;
 
 /// The main interaction point which allows the creation of variables, the addition of constraints,
 /// and solving problems.
@@ -142,7 +143,7 @@ impl Solver {
     ) {
         self.satisfaction_solver.log_statistics(verbose);
         resolver.log_statistics(StatisticLogger::default());
-        if verbose {
+        if should_log_statistics() {
             brancher.log_statistics(StatisticLogger::default());
         }
         log_statistic_postfix();
